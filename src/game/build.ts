@@ -58,6 +58,7 @@ export class Builder {
   private screens: { mat: THREE.MeshStandardMaterial; base: number }[] = [];
   private cones: THREE.ShaderMaterial[] = [];
   private power = 1;
+  private shadowLights: { light: THREE.SpotLight; next: number }[] = [];
 
   constructor(
     readonly scene: THREE.Scene,
@@ -143,6 +144,11 @@ export class Builder {
       l.shadow.bias = -0.0004;
       l.shadow.normalBias = 0.03;
       l.shadow.radius = 3;
+      // The room is static: refreshing these maps 30x per second (staggered)
+      // instead of every frame saves a full scene pass per light per frame.
+      l.shadow.autoUpdate = false;
+      l.shadow.needsUpdate = true;
+      this.shadowLights.push({ light: l, next: this.shadowLights.length / 60 });
     }
     this.lights.push({ light: l, base: intensity });
     return l;
@@ -302,6 +308,16 @@ export class Builder {
     };
     redraw();
     return { redraw, mesh };
+  }
+
+  /** Call every frame: schedules the throttled shadow-map refreshes. */
+  updateShadows(time: number) {
+    for (const s of this.shadowLights) {
+      if (time >= s.next) {
+        s.next = time + 1 / 30;
+        s.light.shadow.needsUpdate = true;
+      }
+    }
   }
 
   /** Register a non-merged emissive material so blackouts affect it too. */

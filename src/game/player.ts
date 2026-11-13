@@ -51,9 +51,11 @@ export class Player {
   private dip = 0;
   private roll = 0;
   private fovKick = 0;
-  private flashlight: THREE.SpotLight;
   private lightTarget = 0;
   private wasGrounded = true;
+
+  private want = new THREE.Vector3();
+  private bobAmt = 0;
 
   constructor(
     private engine: Engine,
@@ -62,32 +64,33 @@ export class Player {
     private audio: AudioEngine,
     spawn: THREE.Vector3,
     yaw: number,
+    /** Created once at boot so the number of lights in the scene never changes. */
+    private flashlight: THREE.SpotLight,
   ) {
     this.body = physics.createCharacter(RADIUS, STAND_H, spawn);
     this.yaw = yaw;
-    const cam = engine.camera;
-    cam.rotation.order = 'YXZ';
-
-    this.flashlight = new THREE.SpotLight(0xdfe9ff, 0, 24, 0.44, 0.5, 1.5);
-    this.flashlight.position.set(0.18, -0.16, 0.05);
-    const target = new THREE.Object3D();
-    target.position.set(0.02, -0.02, -1);
-    cam.add(this.flashlight, target);
-    this.flashlight.target = target;
-    this.applyShadowQuality();
-    engine.onQualityApplied = () => this.applyShadowQuality();
+    engine.camera.rotation.order = 'YXZ';
+    this.flashlight.intensity = 0;
   }
 
-  private applyShadowQuality() {
-    const on = this.engine.quality.shadows && this.engine.quality.name !== 'medium';
-    this.flashlight.castShadow = on;
-    if (on) {
-      this.flashlight.shadow.mapSize.set(1024, 1024);
-      this.flashlight.shadow.camera.near = 0.2;
-      this.flashlight.shadow.camera.far = 24;
-      this.flashlight.shadow.bias = -0.0006;
-      this.flashlight.shadow.normalBias = 0.04;
-    }
+  /** The local flashlight: lives on the camera for the whole session. */
+  static createFlashlight(engine: Engine): THREE.SpotLight {
+    const light = new THREE.SpotLight(0xdfe9ff, 0, 24, 0.44, 0.5, 1.5);
+    light.position.set(0.18, -0.16, 0.05);
+    const target = new THREE.Object3D();
+    target.position.set(0.02, -0.02, -1);
+    engine.camera.add(light, target);
+    light.target = target;
+    light.userData.fixedShadow = true;
+    const on = engine.quality.shadows && engine.quality.name !== 'medium';
+    light.castShadow = on;
+    light.shadow.mapSize.set(1024, 1024);
+    light.shadow.camera.near = 0.2;
+    light.shadow.camera.far = 24;
+    light.shadow.bias = -0.0006;
+    light.shadow.normalBias = 0.04;
+    light.shadow.autoUpdate = false;
+    return light;
   }
 
   teleport(pos: THREE.Vector3, yaw?: number) {
@@ -162,9 +165,12 @@ export class Player {
     this.vel.z += (tz - this.vel.z) * k;
 
     // --- vertical
+    // On the ground there is no downward push at all: pressing the capsule into
+    // the floor makes the character controller drop horizontal movement on some
+    // frames (stutter). Snap-to-ground keeps the feet planted on slopes instead.
     if (grounded) {
       this.airTime = 0;
-      if (this.vy < 0) this.vy = -2;
+      if (this.vy < 0) this.vy = 0;
     } else {
       this.airTime += dt;
     }
@@ -172,24 +178,21 @@ export class Player {
       this.vy = JUMP_V;
       this.airTime = 1;
     }
-    this.vy -= GRAVITY * dt;
-    if (this.vy < -40) this.vy = -40;
+    let dy = 0;
+    if (!grounded || this.vy > 0) {
+      this.vy = Math.max(-40, this.vy - GRAVITY * dt);
+      dy = this.vy * dt;
+    }
+    const fallSpeed = this.vy;
 
-    const want = new THREE.Vector3(this.vel.x * dt, this.vy * dt, this.vel.z * dt);
+    const want = this.want.set(this.vel.x * dt, dy, this.vel.z * dt);
     const moved = this.body.move(want);
     if (this.vy > 0 && moved.y < want.y * 0.5) this.vy = 0; // bumped the ceiling
-    // kill velocity into walls so we don't "stick" and then slingshot
-    if (dt > 0) {
-      const ax = moved.x / dt;
-      const az = moved.z / dt;
-      if (Math.abs(ax) < Math.abs(this.vel.x) * 0.5) this.vel.x = ax;
-      if (Math.abs(az) < Math.abs(this.vel.z) * 0.5) this.vel.z = az;
-    }
 
     const nowGrounded = this.body.grounded;
-    if (nowGrounded && !this.wasGrounded && this.vy < -5) {
-      this.audio.play('land', { vol: Math.min(1, -this.vy / 12) });
-      this.dip = Math.min(0.16, -this.vy * 0.012);
+    if (nowGrounded && !this.wasGrounded && fallSpeed < -5) {
+      this.audio.play('land', { vol: Math.min(1, -fallSpeed / 12) });
+      this.dip = Math.min(0.16, -fallSpeed * 0.012);
     }
     this.wasGrounded = nowGrounded;
 
@@ -203,9 +206,10 @@ export class Player {
         this.audio.play('step', { vol: this.crouching ? 0.35 : sprinting ? 1.25 : 0.8 });
       }
     }
-    const bobAmt = Math.min(1, hSpeed / SPRINT) * (nowGrounded ? 1 : 0);
-    const bobY = Math.sin(this.bobPhase * 2) * 0.034 * bobAmt;
-    const bobX = Math.cos(this.bobPhase) * 0.022 * bobAmt;
+    // eased, so starting, stopping and landing never pop the camera
+    this.bobAmt += (Math.min(1, hSpeed / SPRINT) * (nowGrounded ? 1 : 0) - this.bobAmt) * (1 - Math.exp(-10 * dt));
+    const bobY = Math.sin(this.bobPhase * 2) * 0.03 * this.bobAmt;
+    const bobX = Math.cos(this.bobPhase) * 0.018 * this.bobAmt;
 
     // --- camera
     const eyeTarget = this.crouching ? EYE_CROUCH : EYE_STAND;

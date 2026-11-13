@@ -88,9 +88,14 @@ export class CharacterBody {
     this.position.copy(pos);
   }
 
-  /** Try to move by `delta`; returns the movement that was actually possible. */
+  private moved = new THREE.Vector3();
+
+  /**
+   * Try to move by `delta`; returns the movement that was actually possible
+   * (a shared vector: copy it if you need to keep it).
+   */
   move(delta: THREE.Vector3): THREE.Vector3 {
-    this.controller.computeColliderMovement(this.collider, { x: delta.x, y: delta.y, z: delta.z });
+    this.controller.computeColliderMovement(this.collider, delta);
     const m = this.controller.computedMovement();
     this.grounded = this.controller.computedGrounded();
     const t = this.body.translation();
@@ -99,7 +104,7 @@ export class CharacterBody {
     const nz = t.z + m.z;
     this.body.setNextKinematicTranslation({ x: nx, y: ny, z: nz });
     this.position.set(nx, ny - this.height / 2, nz);
-    return new THREE.Vector3(m.x, m.y, m.z);
+    return this.moved.set(m.x, m.y, m.z);
   }
 
   teleport(pos: THREE.Vector3) {

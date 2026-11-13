@@ -37,7 +37,7 @@ export class Avatar {
   private tag: THREE.Sprite;
   private tagCanvas: HTMLCanvasElement;
   private tagTex: THREE.CanvasTexture;
-  private light: THREE.SpotLight;
+  private light: THREE.SpotLight | null;
   private snaps: Snap[] = [];
   private walk = 0;
   private speed = 0;
@@ -47,11 +47,17 @@ export class Avatar {
   private talking = false;
   private name = '';
   private lightLevel = 0;
+  private headQuat = new THREE.Quaternion();
+  private aim = new THREE.Vector3();
   readonly position = new THREE.Vector3();
   /** World position of the head, for proximity voice. */
   readonly headPos = new THREE.Vector3();
 
-  constructor(parent: THREE.Object3D, name: string, colorIndex: number) {
+  /**
+   * `light` comes from a pool created at boot: adding or removing lights at
+   * runtime would force every material to recompile (a visible hitch).
+   */
+  constructor(parent: THREE.Object3D, name: string, colorIndex: number, light: THREE.SpotLight | null) {
     const color = PLAYER_COLORS[colorIndex % PLAYER_COLORS.length];
     this.accent = new THREE.MeshStandardMaterial({ color: 0x000000, emissive: color, emissiveIntensity: 1.5, roughness: 0.4 });
 
@@ -122,13 +128,11 @@ export class Avatar {
     this.body.add(this.legL, this.legR, this.torso, vest, strip, pack, packLight, belt, this.armL, this.armR, this.head);
     this.group.add(this.body);
 
-    // flashlight (no shadows: cost stays flat with four players)
-    this.light = new THREE.SpotLight(0xdfe9ff, 0, 18, 0.44, 0.5, 1.5);
-    this.light.position.set(0, 0, -0.1);
-    const lt = new THREE.Object3D();
-    lt.position.set(0, 0, -1);
-    this.head.add(this.light, lt);
-    this.light.target = lt;
+    // Flashlight (no shadows: cost stays flat with four players). The light stays
+    // where the pool keeps it in the scene and is only aimed from here: a light
+    // inside this group would drop out of the shaders while the group is hidden.
+    this.light = light;
+    if (light) light.intensity = 0;
 
     // name tag
     this.tagCanvas = document.createElement('canvas');
@@ -258,10 +262,24 @@ export class Avatar {
 
     const lit = (pb.flags & FLAG_LIGHT) !== 0;
     this.lightLevel += ((lit ? 1 : 0) - this.lightLevel) * (1 - Math.exp(-30 * dt));
-    this.light.intensity = 40 * this.lightLevel;
+    if (this.light) {
+      this.light.intensity = 40 * this.lightLevel;
+      this.aim.set(0, 0, -1).applyQuaternion(this.head.getWorldQuaternion(this.headQuat));
+      this.light.position.copy(this.headPos).addScaledVector(this.aim, 0.12);
+      this.light.target.position.copy(this.headPos).addScaledVector(this.aim, 1.2);
+    }
+  }
+
+  /** The pooled flashlight, handed back on dispose. */
+  releaseLight(): THREE.SpotLight | null {
+    const l = this.light;
+    if (l) l.intensity = 0;
+    this.light = null;
+    return l;
   }
 
   dispose() {
+    this.releaseLight();
     this.group.removeFromParent();
     this.tagTex.dispose();
     this.accent.dispose();

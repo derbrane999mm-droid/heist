@@ -953,6 +953,7 @@ export function createHideout(deps: LevelDeps): Level {
     holoMat.opacity = 0.8 + 0.08 * Math.sin(time * 17) * Math.sin(time * 2.3);
     dustA(time);
     dustB(time);
+    b.updateShadows(time);
 
     for (const k of keyMeshes) {
       if (k.press > 0) {

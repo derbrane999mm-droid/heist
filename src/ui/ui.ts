@@ -4,7 +4,7 @@ import { t, onLangChange } from '../core/i18n';
 import { settings, PLAYER_COLORS, type QualityName, type Settings } from '../core/settings';
 import type { MicState } from '../net/voice';
 
-export const VERSION = '0.1.0';
+export const VERSION = '0.1.1';
 
 type Child = Node | string | null | undefined | false;
 function h<K extends keyof HTMLElementTagNameMap>(tag: K, props: Record<string, any> = {}, ...children: Child[]): HTMLElementTagNameMap[K] {

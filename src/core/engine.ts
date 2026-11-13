@@ -148,12 +148,33 @@ export class Engine {
           l.shadow.mapSize.set(q.shadowSize, q.shadowSize);
           l.shadow.map?.dispose();
           l.shadow.map = null;
+          l.shadow.needsUpdate = true;
         }
       }
     });
     this.buildComposer();
     this.resize();
     this.onQualityApplied?.(q);
+    if (this.running) this.warmUp();
+  }
+
+  /**
+   * Render one frame with frustum culling off, so every shader is compiled and
+   * every texture uploaded now instead of the first time it scrolls into view
+   * (which shows up as stutter while walking around).
+   */
+  warmUp() {
+    const restore: THREE.Object3D[] = [];
+    this.scene.traverse((o) => {
+      if (o.frustumCulled) {
+        o.frustumCulled = false;
+        restore.push(o);
+      }
+      const l = o as THREE.SpotLight;
+      if (l.isLight && l.shadow) l.shadow.needsUpdate = true;
+    });
+    this.composer.render(0);
+    for (const o of restore) o.frustumCulled = true;
   }
 
   private buildComposer() {
@@ -234,6 +255,9 @@ export class Engine {
   }
 
   private skipCount = 0;
+  private upBlockedUntil = 0;
+  private upPenalty = 20;
+  private lastUpAt = -1e9;
 
   private frame(now: number) {
     const rawDt = (now - this.last) / 1000;
@@ -272,6 +296,10 @@ export class Engine {
       this.slowPeriods++;
       if (this.dynScale > 0.62) {
         this.dynScale = Math.max(0.6, this.dynScale - (avg > 1 / 30 ? 0.15 : 0.08));
+        // Changing resolution costs a hitch, so never bounce: after stepping down,
+        // wait before trying to go back up, and wait longer each time it fails.
+        if (this.time - this.lastUpAt < 10) this.upPenalty = Math.min(300, this.upPenalty * 2);
+        this.upBlockedUntil = this.time + this.upPenalty;
         this.resize();
       } else if (this.slowPeriods >= 3 && settings.get('quality') === 'auto') {
         const i = ORDER.indexOf(this.quality.name);
@@ -284,9 +312,10 @@ export class Engine {
     } else if (avg < 1 / 58) {
       this.slowPeriods = 0;
       this.fastPeriods++;
-      if (this.fastPeriods >= 3 && this.dynScale < 1) {
+      if (this.fastPeriods >= 4 && this.dynScale < 1 && this.time >= this.upBlockedUntil) {
         this.dynScale = Math.min(1, this.dynScale + 0.05);
         this.fastPeriods = 0;
+        this.lastUpAt = this.time;
         this.resize();
       }
     } else {

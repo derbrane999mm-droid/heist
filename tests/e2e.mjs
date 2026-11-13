@@ -31,6 +31,8 @@ try {
   const code = await host.evaluate(() => window.__nv.session.code);
   check('host creates a crew with a 5-character code', /^[A-Z2-9]{5}$/.test(code), code);
   check('host is online (not offline fallback)', (await host.evaluate(() => window.__nv.session.status)) === 'online');
+  await sleep(1500);
+  const programs0 = await host.evaluate(() => window.__nv.engine.renderer.info.programs.length);
 
   const missing = await host.evaluate(() => window.__nv.missingTranslations());
   check('every text exists in English and German', missing.length === 0, missing.join(', '));
@@ -62,6 +64,27 @@ try {
   const p1 = await a.evaluate(() => window.__nv.player.position.toArray());
   // nominal 3.5 m/s; software rendering drops below the 5 fps real-time floor, so allow a wide band
   check('player walks forward on W', p0[2] - p1[2] > 3 && p0[2] - p1[2] < 10, `z ${p0[2].toFixed(2)} -> ${p1[2].toFixed(2)}`);
+  // every simulated step while walking must actually move the player (no stalls)
+  const smooth = await a.evaluate(async () => {
+    const nv = window.__nv;
+    const B = nv.player.body;
+    const orig = B.move.bind(B);
+    const log = [];
+    B.move = (d) => { const want = Math.hypot(d.x, d.z); const m = orig(d); log.push([want, Math.hypot(m.x, m.z), B.grounded ? 1 : 0]); return m; };
+    for (const [keys, yaw] of [[['KeyW'], 0], [['KeyW', 'ShiftLeft'], Math.PI], [['KeyW', 'KeyD'], 0.4]]) {
+      nv.tp(1.9, 0, yaw === Math.PI ? -4.5 : 5.0, yaw, 0);
+      await new Promise((r) => setTimeout(r, 300));
+      for (const k of keys) nv.input.debugSet(k, true);
+      await new Promise((r) => setTimeout(r, 1400));
+      for (const k of keys) nv.input.debugSet(k, false);
+      await new Promise((r) => setTimeout(r, 300));
+    }
+    B.move = orig;
+    const moving = log.filter((e) => e[0] > 0.004);
+    return { steps: moving.length, stalled: moving.filter((e) => e[1] < e[0] * 0.9).length, airborne: log.filter((e) => !e[2]).length };
+  });
+  check('walking, sprinting and strafing never stall or leave the ground', smooth.steps > 20 && smooth.stalled === 0 && smooth.airborne <= 2, JSON.stringify(smooth));
+
   await a.evaluate(() => { window.__nv.tp(0, 0, -5.5, 0, 0); window.__nv.input.debugSet('KeyW', true); window.__nv.input.debugSet('ShiftLeft', true); });
   await sleep(4000);
   await a.evaluate(() => { window.__nv.input.debugSet('KeyW', false); window.__nv.input.debugSet('ShiftLeft', false); });
@@ -87,6 +110,22 @@ try {
     return pos && Math.hypot(pos[0] - 2.5, pos[2] - 1.5) < 0.3;
   }, 15000);
   check('host sees client A move', !!seenHost);
+
+  // ---- flashlight of another player
+  await a.evaluate(() => window.__nv.input.debugSet('KeyF', true));
+  await sleep(500);
+  await a.evaluate(() => window.__nv.input.debugSet('KeyF', false));
+  const beam = await until(async () => {
+    const r = await b.evaluate((pid) => {
+      const av = window.__nv.avatars.get(pid);
+      return av && av.light ? { i: av.light.intensity, d: av.light.position.distanceTo(av.headPos), visible: av.light.parent.visible } : null;
+    }, aPid);
+    return r && r.i > 20 && r.d < 0.3 && r.visible ? r : false;
+  }, 10000);
+  check("another player's flashlight is lit and follows their head", !!beam, JSON.stringify(beam));
+  await a.evaluate(() => window.__nv.input.debugSet('KeyF', true));
+  await sleep(500);
+  await a.evaluate(() => window.__nv.input.debugSet('KeyF', false));
 
   // ---- voice mesh
   const voiceOk = await until(async () => {
@@ -170,6 +209,14 @@ try {
   check('job board unlocks and the objective completes', (await st(c)).board === true);
   const saved = await Promise.all([host, a].map((p) => p.evaluate(() => JSON.parse(localStorage.getItem('nullvault.campaign.v1') || '{}').crewReady)));
   check('progress is saved on the host and mirrored to clients', saved.every(Boolean), JSON.stringify(saved));
+
+  // ---- no shader was compiled during play (each late compile is a visible hitch)
+  for (const v of [[0, 0, -3, 0], [-6, 0, 0, 1.57], [6.8, 0, -5.4, -1.57], [6, 0, 4.2, 3.14], [-2, 0, 1, 2.4]]) {
+    await host.evaluate((v) => window.__nv.tp(v[0], v[1], v[2], v[3], 0), v);
+    await sleep(1200);
+  }
+  const programs1 = await host.evaluate(() => window.__nv.engine.renderer.info.programs.length);
+  check('all shaders were compiled up front (none added while playing)', programs1 === programs0, `${programs0} -> ${programs1}`);
 
   // ---- leaving
   await b.evaluate(() => window.__nv.leave());

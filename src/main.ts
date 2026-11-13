@@ -11,7 +11,7 @@ import { Player } from './game/player';
 import { Avatar } from './game/avatar';
 import { createHideout } from './game/levels/hideout';
 import type { Level } from './game/level';
-import { Session, normalizeCode, type JoinError, type PlayerInfo } from './net/session';
+import { Session, normalizeCode, MAX_PLAYERS, type JoinError } from './net/session';
 import { Voice } from './net/voice';
 import { UI, type CrewRow } from './ui/ui';
 
@@ -73,7 +73,32 @@ async function boot() {
   const mats = createMaterials(Math.min(8, engine.renderer.capabilities.getMaxAnisotropy()), engine.quality.name !== 'low');
   stage('materials');
   const interactions = new Interactions(physics, input);
+  // Every light that can ever exist is created now. The number of lights is part
+  // of each compiled shader, so adding one later would recompile everything.
+  const flashlight = Player.createFlashlight(engine);
+  const lightPool: THREE.SpotLight[] = [];
+  const lightHome = new THREE.Group();
+  engine.scene.add(lightHome);
+  for (let i = 0; i < MAX_PLAYERS - 1; i++) {
+    const l = new THREE.SpotLight(0xdfe9ff, 0, 18, 0.44, 0.5, 1.5);
+    lightHome.add(l, l.target);
+    lightPool.push(l);
+  }
+  engine.onQualityApplied = (qp) => {
+    flashlight.castShadow = qp.shadows && qp.name !== 'medium';
+  };
+
   level = createHideout({ engine, physics, audio, mats, interactions, ui, player: () => player });
+
+  // compile everything behind the loading screen (including a crew member's suit)
+  {
+    const dummy = new Avatar(engine.scene, 'warm-up', 0, lightPool[0]);
+    dummy.group.visible = true;
+    dummy.group.position.set(0, 0, 3);
+    level.menuCamera(0, engine.camera);
+    engine.warmUp();
+    dummy.dispose();
+  }
   stage('level');
   void document.fonts.ready.then(() => level.redraw());
 
@@ -133,7 +158,7 @@ async function boot() {
 
     const order = [...s.players.keys()];
     const sp = level.spawn(Math.max(0, order.indexOf(s.pid)));
-    player = new Player(engine, physics, input, audio, sp.pos, sp.yaw);
+    player = new Player(engine, physics, input, audio, sp.pos, sp.yaw, flashlight);
 
     s.onRoster = (joined, left) => {
       syncCrew();
@@ -177,11 +202,13 @@ async function boot() {
     for (const p of session.players.values()) {
       if (p.pid === session.pid) continue;
       const a = avatars.get(p.pid);
-      if (!a) avatars.set(p.pid, new Avatar(engine.scene, p.name, p.color));
+      if (!a) avatars.set(p.pid, new Avatar(engine.scene, p.name, p.color, lightPool.pop() ?? null));
       else a.setName(p.name, p.color);
     }
     for (const [pid, a] of avatars) {
       if (!session.players.has(pid)) {
+        const l = a.releaseLight();
+        if (l) lightPool.push(l);
         a.dispose();
         avatars.delete(pid);
       }
@@ -203,10 +230,15 @@ async function boot() {
     voice = null;
     session.leave();
     session = null;
-    for (const a of avatars.values()) a.dispose();
+    for (const a of avatars.values()) {
+      const l = a.releaseLight();
+      if (l) lightPool.push(l);
+      a.dispose();
+    }
     avatars.clear();
     player?.body.dispose();
     player = null;
+    flashlight.intensity = 0;
     mode = 'menu';
     input.unlock();
     ui.clearSubtitles();
