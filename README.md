@@ -19,6 +19,7 @@ npm install
 npm run dev          # local dev server
 npm run typecheck
 node tests/kcc.mjs   # character-controller regression test (no browser)
+node tests/lineup.mjs # role voting with 4 simulated players
 node tests/e2e.mjs   # 4 simulated players, full crew-check playthrough (headless Chrome)
 NV_DIST=1 node tests/e2e.mjs   # same against the production build
 node tests/shots.mjs high      # screenshot tour -> test-out/

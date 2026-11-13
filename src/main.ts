@@ -370,6 +370,7 @@ async function boot() {
     start,
     leave,
     level,
+    lineupView,
     missingTranslations,
     /** Teleport the local player (tests and screenshots). */
     tp(x: number, y: number, z: number, yaw = 0, pitch = 0) {

@@ -22,7 +22,7 @@ const roster = (page) => page.evaluate(() => (window.__nv.session ? [...window._
 const use = (page, id, hold) => page.evaluate(([id, hold]) => window.__nv.interactions.debugUse(id, hold), [id, hold]);
 
 const env = await startServers({ port: 5189, sigPort: 9011 });
-const opt = { width: 480, height: 270, quality: 'low', renderSkip: 8 };
+const opt = { width: 480, height: 270, quality: 'low', renderSkip: 8, lineupFast: true };
 try {
   // ---- host
   const host = await openPlayer(env, { ...opt, name: 'Host' });
@@ -144,12 +144,36 @@ try {
   const quiet = await until(async () => !(await b.evaluate((pid) => window.__nv.voice.isTalking(pid), aPid)), 8000);
   check('voice: muted player goes silent for others', !!quiet);
 
+  // ---- the lineup comes first for a crew (details are covered by tests/lineup.mjs)
+  check('crew must do the lineup before the practice vault', (await use(a, 'relay', true)) === false);
+  await host.evaluate(() => window.__nv.session.intent('lineup.start'));
+  const lineupDone = await until(async () => {
+    const l = await host.evaluate(() => window.__nv.session.state.lineup);
+    if (l.phase === 'done') return l;
+    if (l.phase === 'vote') {
+      for (const pg of [host, a, b]) {
+        await pg.evaluate(() => {
+          const s = window.__nv.session;
+          const l = s.state.lineup;
+          if (l.phase !== 'vote' || l.voted.includes(s.pid)) return;
+          const target = l.candidates.find((p) => p !== s.pid);
+          if (target) s.intent('lineup.vote', { target });
+        });
+      }
+    }
+    return false;
+  }, 60000, 400);
+  check('lineup of three hands out three different roles', !!lineupDone && new Set(Object.values(lineupDone.roles)).size === 3, JSON.stringify(lineupDone && lineupDone.roles));
+  const crewPids = await Promise.all([host, a, b].map((pg) => pg.evaluate(() => window.__nv.session.pid)));
+  const brainPage = [host, a, b][crewPids.findIndex((x) => lineupDone.roles[x] === 'brain')];
+  const others = [host, a, b].filter((pg) => pg !== brainPage);
+  check('objective (EN) asks for the relay', (await (await b.evaluate(() => window.__nv.level.objective()[0]))).includes('relay'));
+  check('objective (DE) is translated', (await a.evaluate(() => window.__nv.level.objective()[0])).includes('Relais'));
+
   // ---- the puzzle
   let s = await st(host);
   check('host created the puzzle', s && s.code.length === 4 && new Set(s.code).size === 4 && s.order.length === 4);
   check('clients received the same puzzle', JSON.stringify(await st(a)) === JSON.stringify(s) && JSON.stringify(await st(b)) === JSON.stringify(s));
-  check('objective (EN) asks for the relay', (await b.evaluate(() => window.__nv.level.objective()[0])).includes('relay'));
-  check('objective (DE) is translated', (await a.evaluate(() => window.__nv.level.objective()[0])).includes('Relais'));
 
   await use(a, 'relay', true);
   await until(async () => (await st(b))?.relayBy === aPid);
@@ -158,7 +182,7 @@ try {
 
   const solution = s.order.map((c) => s.code[c]);
   const wrong = solution.slice().reverse();
-  for (const d of wrong) { await use(b, 'key-' + d); await sleep(150); }
+  for (const d of wrong) { await use(brainPage, 'key-' + d); await sleep(150); }
   await until(async () => (await st(host)).strikes === 1);
   check('wrong sequence costs a strike and clears the entry', (await st(a)).strikes === 1 && (await st(a)).entered.length === 0);
 
@@ -171,7 +195,8 @@ try {
   // software rendering runs at a few fps here, which smears the measurement; on real hardware this is ~10 ms
   check('client clock is synced to the host (< 700 ms under software rendering)', Math.abs(skew) < 700, Math.round(skew) + ' ms');
 
-  for (const d of solution) { await use(b, 'key-' + d); await sleep(150); }
+  check('a player who is not the Brain cannot use the keypad', (await use(others[0], 'key-1')) === false);
+  for (const d of solution) { await use(brainPage, 'key-' + d); await sleep(150); }
   const opened = await until(async () => (await st(host)).open && (await st(a)).open && (await st(b)).open);
   check('correct sequence opens the vault for everyone', !!opened);
   check('kit cannot be taken before the door has swung open', (await use(host, 'kit')) === false);
@@ -196,6 +221,9 @@ try {
   const pin = await a.evaluate(() => window.__nv.player.position.toArray());
   check('open vault can be entered', pin[0] < -9.3, 'x=' + pin[0].toFixed(2));
 
+  const cRole = await until(() => c.evaluate(() => window.__nv.session.state.lineup.roles[window.__nv.session.pid]), 15000);
+  check('late joiner received the leftover role (Bait)', cRole === 'bait', String(cRole));
+  check('only the Bait can take the kit', (await use(host, 'kit')) === false);
   check('kit pickup works once the door is open', (await use(c, 'kit')) === true);
   await until(async () => (await st(host)).kit);
   check('kit state reaches everyone', (await st(a)).kit && (await st(b)).kit && (await st(c)).kit);
