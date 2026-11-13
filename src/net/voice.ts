@@ -66,13 +66,14 @@ export class Voice {
         this.orphanCalls.set(call.peer, call);
       }
     });
-    settings.onChange((_s, k) => {
+    this.unsubSettings = settings.onChange((_s, k) => {
       if (k === 'voice' || k === 'master' || k === 'voiceMode' || k === 'micMuted') this.applyGate();
       if (k === 'voice' || k === 'master') this.applyVolumes();
     });
   }
 
   private orphanCalls = new Map<string, MediaConnection>();
+  private unsubSettings: (() => void) | null = null;
 
   /** Ask for the microphone. Resolves false if the user or browser refuses. */
   async enableMic(): Promise<boolean> {
@@ -302,6 +303,7 @@ export class Voice {
 
   dispose() {
     this.disposed = true;
+    this.unsubSettings?.();
     for (const r of this.remotes.values()) this.teardown(r);
     this.remotes.clear();
     this.micStream?.getTracks().forEach((t) => t.stop());

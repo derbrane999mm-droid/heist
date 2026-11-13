@@ -20,7 +20,7 @@ export interface PlayerInfo {
 }
 
 export type Status = 'online' | 'offline' | 'reconnecting' | 'closed';
-export type JoinError = 'not-found' | 'full' | 'version' | 'timeout' | 'unsupported';
+export type JoinError = 'not-found' | 'full' | 'version' | 'blocked' | 'no-server' | 'unsupported';
 
 type PoseArr = [number, number, number, number, number, number];
 
@@ -362,14 +362,18 @@ export class Session {
         return;
       }
       s.peer = peer;
-      const timeout = window.setTimeout(() => fail('timeout'), 15000);
+      // If the matchmaking server answered but no link opened, the network blocked
+      // the peer-to-peer connection (a missing crew is reported within ~5 s).
+      let signalOpen = false;
+      const timeout = window.setTimeout(() => fail(signalOpen ? 'blocked' : 'no-server'), 20000);
       peer.on('error', (err: any) => {
         if (settled) return;
         if (err?.type === 'peer-unavailable') fail('not-found');
         else if (err?.type === 'browser-incompatible') fail('unsupported');
-        else if (['network', 'server-error', 'socket-error', 'socket-closed'].includes(err?.type)) fail('timeout');
+        else if (!signalOpen && ['network', 'server-error', 'socket-error', 'socket-closed'].includes(err?.type)) fail('no-server');
       });
       peer.on('open', () => {
+        signalOpen = true;
         s.clientConnect(
           () => {
             if (settled) return;
@@ -397,6 +401,9 @@ export class Session {
     this.lastPoseSeq = -1;
     let welcomed = false;
     rel.on('open', () => rel.send({ t: 'h', v: PROTOCOL, name: this.name, color: this.color }));
+    rel.on('iceStateChanged', (state) => {
+      if (!welcomed && state === 'failed') onFail('blocked');
+    });
     rel.on('data', (d: any) => {
       if (!d || typeof d.t !== 'string') return;
       switch (d.t) {

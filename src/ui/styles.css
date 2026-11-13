@@ -262,6 +262,7 @@ input.code {
 .menu-error {
   color: var(--warn);
   font-size: 14px;
+  line-height: 1.4;
   min-height: 20px;
 }
 

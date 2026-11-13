@@ -53,7 +53,7 @@ const en: Dict = {
   'hud.mic.off': 'No microphone',
   'hud.mic.ptt': 'Hold V to talk',
   'hud.controls':
-    'WASD move · Shift sprint · Space jump · C crouch · E use · F flashlight · M mute · Tab crew · Esc menu',
+    'WASD move · Shift sprint · Space jump · C crouch · E or click use · F flashlight · M mute mic · Esc menu',
 
   'toast.joined': '{name} joined the crew',
   'toast.left': '{name} left the crew',
@@ -64,6 +64,8 @@ const en: Dict = {
   'toast.micDenied': 'Microphone blocked. You can still hear the crew.',
   'toast.full': 'This crew is full (4 players)',
   'toast.notFound': 'No crew found with code {code}',
+  'toast.blocked': 'Found the crew, but the direct connection failed. Your network is probably blocking peer-to-peer links. Try another network, for example a phone hotspot.',
+  'toast.noServer': 'Could not reach the matchmaking server. Check your internet connection and try again.',
   'toast.version': 'The host runs a different game version. Reload the page (Ctrl/Cmd + Shift + R).',
   'toast.quality': 'Graphics set to {q} to keep the frame rate smooth',
 
@@ -186,7 +188,7 @@ const de: Dict = {
   'hud.mic.off': 'Kein Mikrofon',
   'hud.mic.ptt': 'V halten zum Sprechen',
   'hud.controls':
-    'WASD bewegen · Shift sprinten · Leertaste springen · C ducken · E benutzen · F Taschenlampe · M stumm · Tab Crew · Esc Menü',
+    'WASD bewegen · Shift sprinten · Leertaste springen · C ducken · E oder Klick benutzen · F Taschenlampe · M Mikro stumm · Esc Menü',
 
   'toast.joined': '{name} ist der Crew beigetreten',
   'toast.left': '{name} hat die Crew verlassen',
@@ -197,6 +199,8 @@ const de: Dict = {
   'toast.micDenied': 'Mikrofon blockiert. Du hörst die Crew trotzdem.',
   'toast.full': 'Diese Crew ist voll (4 Spieler)',
   'toast.notFound': 'Keine Crew mit dem Code {code} gefunden',
+  'toast.blocked': 'Crew gefunden, aber die Direktverbindung ist gescheitert. Dein Netzwerk blockiert vermutlich Peer-to-Peer. Probier ein anderes Netz, zum Beispiel einen Handy-Hotspot.',
+  'toast.noServer': 'Matchmaking-Server nicht erreichbar. Prüfe deine Internetverbindung und versuch es erneut.',
   'toast.version': 'Der Host nutzt eine andere Spielversion. Seite neu laden (Strg/Cmd + Shift + R).',
   'toast.quality': 'Grafik auf {q} gestellt, damit das Spiel flüssig läuft',
 

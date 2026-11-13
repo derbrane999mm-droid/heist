@@ -4,7 +4,7 @@ import { Physics } from './core/physics';
 import { AudioEngine } from './core/audio';
 import { Input } from './core/input';
 import { settings, playerId } from './core/settings';
-import { t } from './core/i18n';
+import { t, missingTranslations } from './core/i18n';
 import { createMaterials } from './game/materials';
 import { Interactions } from './game/interact';
 import { Player } from './game/player';
@@ -84,8 +84,11 @@ async function boot() {
   function describeJoinError(e: JoinError, code: string): string {
     switch (e) {
       case 'not-found':
-      case 'timeout':
         return t('toast.notFound', { code });
+      case 'blocked':
+        return t('toast.blocked');
+      case 'no-server':
+        return t('toast.noServer');
       case 'full':
         return t('toast.full');
       case 'version':
@@ -319,6 +322,7 @@ async function boot() {
     start,
     leave,
     level,
+    missingTranslations,
     /** Teleport the local player (tests and screenshots). */
     tp(x: number, y: number, z: number, yaw = 0, pitch = 0) {
       if (!player) return;
