@@ -2,7 +2,9 @@
 // calibration set); without it the game starts in the hideout.
 import type { Level, LevelDeps } from '../level';
 import { createHideout } from './hideout';
+import { createCalibRange } from './calib-range';
 
 export const LEVELS: Record<string, (deps: LevelDeps) => Level> = {
   hideout: createHideout,
+  range: createCalibRange,
 };
