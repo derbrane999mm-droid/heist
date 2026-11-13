@@ -671,3 +671,13 @@ input[type='range'] {
     animation: none;
   }
 }
+
+/* narrow windows: the controls line would collide with the mic chip */
+@media (max-width: 1180px) {
+  .hint {
+    display: none;
+  }
+  .objective {
+    max-width: 52vw;
+  }
+}
