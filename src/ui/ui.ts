@@ -230,7 +230,7 @@ export class UI {
       el.addEventListener('input', () => settings.set(key, Number(el.value)));
       return el;
     };
-    const row = (labelKey: string, control: HTMLElement) => h('div', { class: 'set-row' }, h('span', {}, t(labelKey)), control);
+    const row = (labelKey: string, control: HTMLElement, wide = false) => h('div', { class: 'set-row' + (wide ? ' wide' : '') }, h('span', {}, t(labelKey)), control);
     const onOff: [boolean, string][] = [
       [false, t('set.off')],
       [true, t('set.on')],
@@ -245,6 +245,7 @@ export class UI {
           'quality',
           (['auto', 'low', 'medium', 'high', 'ultra'] as (QualityName | 'auto')[]).map((q) => [q, t('set.q.' + q)]),
         ),
+        true,
       ),
       row('set.sensitivity', slider('sensitivity', 0.2, 3, 0.05)),
       row('set.fov', slider('fov', 60, 100, 1)),
@@ -253,7 +254,7 @@ export class UI {
       row('set.sfx', slider('sfx', 0, 1, 0.01)),
       row('set.music', slider('music', 0, 1, 0.01)),
       row('set.voice', slider('voice', 0, 1, 0.01)),
-      row('set.voiceMode', seg('voiceMode', [['open', t('set.vm.open')], ['ptt', t('set.vm.ptt')]])),
+      row('set.voiceMode', seg('voiceMode', [['open', t('set.vm.open')], ['ptt', t('set.vm.ptt')]]), true),
       row('set.showFps', seg('showFps', onOff)),
     );
   }

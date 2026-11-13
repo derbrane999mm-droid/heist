@@ -53,7 +53,7 @@ export class Avatar {
 
   constructor(parent: THREE.Object3D, name: string, colorIndex: number) {
     const color = PLAYER_COLORS[colorIndex % PLAYER_COLORS.length];
-    this.accent = new THREE.MeshStandardMaterial({ color: 0x000000, emissive: color, emissiveIntensity: 2.6, roughness: 0.4 });
+    this.accent = new THREE.MeshStandardMaterial({ color: 0x000000, emissive: color, emissiveIntensity: 1.5, roughness: 0.4 });
 
     const limb = (r: number, len: number, mat: THREE.Material) => {
       const g = new THREE.Group();

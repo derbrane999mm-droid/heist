@@ -157,7 +157,7 @@ const de: Dict = {
 
   'set.language': 'Sprache',
   'set.quality': 'Grafik',
-  'set.q.auto': 'Automatisch',
+  'set.q.auto': 'Auto',
   'set.q.low': 'Niedrig',
   'set.q.medium': 'Mittel',
   'set.q.high': 'Hoch',

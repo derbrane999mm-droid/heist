@@ -349,8 +349,8 @@ export function createHideout(deps: LevelDeps): Level {
   physics.setEnabled(doorOpenCol, false);
 
   // status light above the door
-  const statusMat = new THREE.MeshStandardMaterial({ color: 0, emissive: 0xff3040, emissiveIntensity: 4 });
-  b.mesh(new THREE.BoxGeometry(0.03, 0.05, 1.5), statusMat, -8.84, 2.36, 0).castShadow = false;
+  const statusMat = new THREE.MeshStandardMaterial({ color: 0, emissive: 0xff3040, emissiveIntensity: 2 });
+  b.mesh(new THREE.BoxGeometry(0.03, 0.028, 1.3), statusMat, -8.84, 2.36, 0).castShadow = false;
   b.trackGlow(statusMat);
   const vaultLabel = b.decal(1.9, 0.24, -8.835, 2.68, 0, Math.PI / 2, 300, (ctx, w, h) => {
     ctx.fillStyle = 'rgba(230,238,242,0.82)';
@@ -593,19 +593,31 @@ export function createHideout(deps: LevelDeps): Level {
   b.box(m.darkMetal, 4.8, 0.3, 0.3, -5.0, 3.4, 6.88, { tile: 1, collide: false });
   b.glowBox(0xff3040, 0.5, 0.08, 0.05, -5.0, 3.4, 6.71, 1.8);
 
-  const paint = new THREE.MeshStandardMaterial({ color: 0x0a0c10, roughness: 0.28, metalness: 0.75, envMapIntensity: 1.3 });
+  const paint = new THREE.MeshStandardMaterial({ color: 0x171b22, roughness: 0.3, metalness: 0.7, envMapIntensity: 1.5 });
+  const tint = new THREE.MeshStandardMaterial({ color: 0x04070a, roughness: 0.04, metalness: 0.95, envMapIntensity: 2 });
   const VX = -5.0;
   const VZ = 3.5;
   const van = (sx: number, sy: number, sz: number, x: number, y: number, z: number, mat: THREE.Material = paint, round = 0.1) =>
     b.box(mat, sx, sy, sz, VX + x, y, VZ + z, { round, collide: false, tile: 2 });
-  van(2.05, 1.55, 3.1, 0, 1.3, -0.75, paint, 0.12);
-  van(1.96, 1.2, 1.5, 0, 1.12, 1.45, paint, 0.2);
-  van(1.9, 0.62, 0.95, 0, 0.83, 2.4, paint, 0.16);
-  van(1.74, 0.5, 0.05, 0, 1.42, 2.215, m.glass, 0.01);
-  van(2.08, 0.16, 0.16, 0, 0.5, 2.86, m.rubber, 0.04);
+  van(2.05, 1.55, 3.1, 0, 1.3, -0.75, paint, 0.12); // cargo box
+  van(1.96, 1.2, 1.5, 0, 1.12, 1.45, paint, 0.2); // cab
+  van(1.9, 0.62, 0.95, 0, 0.83, 2.4, paint, 0.16); // hood
+  van(1.74, 0.5, 0.05, 0, 1.42, 2.215, tint, 0.01); // windshield
+  van(2.08, 0.16, 0.16, 0, 0.5, 2.86, m.rubber, 0.04); // bumpers
   van(2.08, 0.16, 0.16, 0, 0.5, -2.3, m.rubber, 0.04);
-  van(1.2, 0.05, 1.9, 0, 2.1, -0.8, m.darkMetal, 0.02);
+  van(1.3, 0.2, 0.03, 0, 0.8, 2.88, m.black, 0.01); // grille
+  van(0.02, 1.42, 0.012, 0, 1.3, -2.306, m.black, 0); // rear door seam
   for (const sx of [-1, 1]) {
+    van(0.03, 0.42, 0.95, sx * 0.975, 1.42, 1.48, tint, 0.01); // cab side window
+    van(0.012, 1.34, 0.02, sx * 1.028, 1.3, 0.35, m.black, 0); // sliding door seams
+    van(0.012, 1.34, 0.02, sx * 1.028, 1.3, -1.0, m.black, 0);
+    van(0.012, 0.02, 1.36, sx * 1.028, 1.97, -0.33, m.black, 0);
+    van(0.03, 0.04, 0.17, sx * 1.035, 1.16, 0.18, m.steel, 0.01); // handle
+    van(0.06, 0.09, 1.02, sx * 1.02, 0.83, 1.9, m.rubber, 0.02); // wheel arch trims
+    van(0.06, 0.09, 1.02, sx * 1.02, 0.83, -1.45, m.rubber, 0.02);
+    van(0.16, 0.2, 0.08, sx * 1.08, 1.36, 2.02, m.plastic, 0.03); // mirror
+    van(0.04, 0.04, 2.8, sx * 0.7, 2.11, -0.8, m.steel, 0.01); // roof rails
+    van(0.14, 0.04, 0.03, sx * 0.13, 1.2, -2.312, m.steel, 0.01); // rear handles
     for (const wz of [1.9, -1.45]) {
       const tire = new THREE.CylinderGeometry(0.39, 0.39, 0.28, 28).rotateZ(Math.PI / 2).translate(VX + sx * 0.93, 0.39, VZ + wz);
       b.addStatic(m.rubber, tire);
@@ -615,8 +627,9 @@ export function createHideout(deps: LevelDeps): Level {
     b.glowBox(0xff2030, 0.1, 0.42, 0.02, VX + sx * 0.85, 1.05, VZ - 2.31, 2.2);
     b.glowBox(0xfff1d0, 0.3, 0.1, 0.02, VX + sx * 0.65, 0.86, VZ + 2.885, 0.25);
   }
-  b.glowBox(TEAL, 0.012, 0.012, 2.9, VX + 1.032, 0.75, VZ - 0.75, 1.6);
-  b.glowBox(TEAL, 0.012, 0.012, 2.9, VX - 1.032, 0.75, VZ - 0.75, 1.6);
+  for (const rz of [-2.0, -1.2, -0.4, 0.4]) van(1.44, 0.03, 0.04, 0, 2.12, rz, m.steel, 0.01);
+  b.glowBox(TEAL, 0.012, 0.012, 2.9, VX + 1.032, 0.62, VZ - 0.75, 1.6);
+  b.glowBox(TEAL, 0.012, 0.012, 2.9, VX - 1.032, 0.62, VZ - 0.75, 1.6);
   b.collider(VX, 1.1, VZ + 0.25, 2.1, 2.2, 5.5);
   const bay = b.decal(2.2, 0.7, -2.2, 0.012, 5.2, 0, 160, (ctx, w, h) => {
     ctx.fillStyle = 'rgba(214,150,22,0.55)';
@@ -661,7 +674,7 @@ export function createHideout(deps: LevelDeps): Level {
   // ======================================================================
   // Lights
   // ======================================================================
-  b.hemisphere(0x8fa6c8, 0x1a1410, 0.22);
+  b.hemisphere(0x8fa6c8, 0x1a1410, 0.32);
   b.spot(COOL, 190, 0, H - 0.1, 0, 0, 0, 0, { angle: 0.62, penumbra: 0.75, distance: 9, shadow: true });
   b.cone(COOL, 0, H - 0.15, 0, 2.6, 3.4, 0.05);
   b.spot(COOL, 150, -6.3, H - 0.1, 0, -8.9, 0.9, 0, { angle: 0.55, penumbra: 0.7, distance: 10, shadow: true });
@@ -920,7 +933,7 @@ export function createHideout(deps: LevelDeps): Level {
     redrawPuzzle();
   };
 
-  const ENV_INTENSITY = 0.85;
+  const ENV_INTENSITY = 1.0;
   engine.captureEnvironment(new THREE.Vector3(0.6, 1.7, 1.6), ENV_INTENSITY);
 
   const applyPower = (f: number) => {

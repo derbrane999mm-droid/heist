@@ -1,7 +1,7 @@
 // Shared test harness: local signalling server + Vite dev server + headless Chrome.
 import { chromium } from 'playwright-core';
 import { PeerServer } from 'peer';
-import { createServer } from 'vite';
+import { createServer, preview } from 'vite';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 
@@ -10,8 +10,11 @@ export const OUT = path.join(root, 'test-out');
 
 export async function startServers({ port = 5188, sigPort = 9010 } = {}) {
   const ps = PeerServer({ port: sigPort, path: '/', host: '127.0.0.1' });
-  const vite = await createServer({ root, server: { port, host: '127.0.0.1', strictPort: true }, logLevel: 'error' });
-  await vite.listen();
+  // NV_DIST=1 tests the production build in dist/ instead of the dev server
+  const vite = process.env.NV_DIST
+    ? await preview({ root, preview: { port, host: '127.0.0.1', strictPort: true }, logLevel: 'error' })
+    : await createServer({ root, server: { port, host: '127.0.0.1', strictPort: true }, logLevel: 'error' });
+  if (!process.env.NV_DIST) await vite.listen();
   const browser = await chromium.launch({
     executablePath: '/usr/bin/google-chrome',
     headless: true,
@@ -34,7 +37,7 @@ export async function startServers({ port = 5188, sigPort = 9010 } = {}) {
     base,
     async stop() {
       await browser.close();
-      await vite.close();
+      await (vite.close ? vite.close() : new Promise((r) => vite.httpServer.close(r)));
       try { ps.close?.(); } catch {}
     },
   };

@@ -277,10 +277,14 @@ input.code {
 }
 .set-row {
   display: grid;
-  grid-template-columns: 1fr 190px;
+  grid-template-columns: 1fr 200px;
   align-items: center;
   gap: 14px;
   font-size: 14px;
+}
+.set-row.wide {
+  grid-template-columns: 1fr;
+  gap: 6px;
 }
 .seg {
   display: flex;
@@ -300,6 +304,10 @@ input.code {
   border: 0;
   padding: 8px 4px;
   cursor: pointer;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .seg button.on {
   background: var(--accent);
