@@ -136,9 +136,20 @@ export class Input {
     return BINDINGS[a].some((c) => this.released.has(c));
   }
 
-  /** Edge-triggered check for a physical key that is not a bound action (number keys). */
+  /** Edge-triggered check for a physical key that is not a bound action (number keys, R, Q…). */
   codePressed(code: string): boolean {
     return this.enabled && this.pressed.has(code);
+  }
+  codeHeld(code: string): boolean {
+    return this.enabled && this.down.has(code);
+  }
+
+  /** Left mouse button only (weapons). "Use" also reacts to it, so do not put both on one object. */
+  fireHeld(): boolean {
+    return this.enabled && this.mouseDown;
+  }
+  firePressed(): boolean {
+    return this.enabled && this.mousePressed;
   }
 
   /** "Use" is E or the left mouse button. */

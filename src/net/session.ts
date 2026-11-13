@@ -105,6 +105,7 @@ export class Session {
   private stateListeners = new Set<(path: string, value: any) => void>();
   private eventListeners = new Set<(name: string, args: any) => void>();
   private castListeners = new Set<(name: string, data: any) => void>();
+  private lastPoses = new Map<string, Pose>();
   private intents = new Map<string, (pid: string, args: any) => void>();
 
   // host
@@ -233,7 +234,9 @@ export class Session {
       conn.on('data', (d: any) => {
         if (d && d.t === 'p' && Array.isArray(d.a) && this.links.get(pid)?.unrel === conn) {
           this.poses.set(pid, d.a);
-          this.onPose?.(pid, unpackPose(d.a));
+          const pose = unpackPose(d.a);
+          this.lastPoses.set(pid, pose);
+          this.onPose?.(pid, pose);
         }
       });
       return;
@@ -471,7 +474,10 @@ export class Session {
     if (d.s <= this.lastPoseSeq) return; // out-of-order packet on the unreliable channel
     this.lastPoseSeq = d.s;
     for (const [pid, arr] of d.l) {
-      if (pid !== this.pid) this.onPose?.(pid, unpackPose(arr));
+      if (pid === this.pid) continue;
+      const pose = unpackPose(arr);
+      this.lastPoses.set(pid, pose);
+      this.onPose?.(pid, pose);
     }
   }
 
@@ -654,6 +660,12 @@ export class Session {
 
   sendPose(pose: Pose) {
     this.myPose = packPose(pose);
+    this.lastPoses.set(this.pid, pose);
+  }
+
+  /** Latest known pose of any crew member (feet position, yaw, pitch, flags), on every peer. */
+  poseOf(pid: string): Pose | undefined {
+    return this.players.has(pid) ? this.lastPoses.get(pid) : undefined;
   }
 
   /** Peer ids of everyone else, for the voice mesh. */

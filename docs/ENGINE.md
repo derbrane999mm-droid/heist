@@ -70,6 +70,7 @@ The host owns the world. Clients ask; the host decides and replicates.
 - `session.intent(name, args)` from anyone → `session.handle(name, (pid, args) => …)` runs on the host. Always validate in the handler.
 - `session.emit(name, args)` host → everyone, one-shot (reliable): `session.onEvent(fn)`. Existing events: `sfx { n, p?, r? }`, `say { k }`.
 - `session.cast(name, data)` host → clients, unreliable and unordered, for fast-changing data (enemy positions at 10–20 Hz): `session.onCast(fn)`. Send absolute state; packets may drop.
+- `session.poseOf(pid)` latest pose of any crew member (`x, y, z` feet, `yaw`, `pitch`, `flags`), available on every peer.
 - `session.hostNow()` shared clock in ms: use it for anything timed.
 - Late join and rejoin must work: derive visuals from state, not from events alone.
 
@@ -84,6 +85,7 @@ interactions.add({ id, object, range, prompt: () => string | null, locked: () =>
 ### Player
 
 `player.position` (feet), `player.eye`, `player.forward`, `player.yaw/pitch`, `player.teleport(pos, yaw?)`, `player.body.collider`.
+Input beyond the bound actions: `input.codePressed(code)`, `input.codeHeld(code)`, `input.firePressed()`, `input.fireHeld()` (left mouse). Mini-game overlays are keyboard-driven while the pointer stays locked (no mouse cursor).
 `player.frozen = true` stops movement and look (cutscenes, vehicles, mini-game overlays). To carry the player with a vehicle, teleport the body every frame and set the camera in `level.update`.
 Roles: `mayAct(session, 'brain' | 'gambler' | 'hands' | 'bait')` is true if I hold the role or nobody present does.
 
@@ -111,3 +113,11 @@ Roles: `mayAct(session, 'brain' | 'gambler' | 'hands' | 'bait')` is true if I ho
 - Browser tests: copy the pattern in tests/lineup.mjs. `startServers({ port, sigPort })` (use your own ports), `openPlayer(env, { name, quality: 'low', width: 420, height: 240, renderSkip: 12, extra: '&level=<name>' })`, then drive the game through `window.__nv` (`start(code)`, `tp(x, y, z, yaw, pitch)`, `input.debugSet(code, down)`, `interactions.debugUse(id)`, `session`, `player`, `level`).
 - The test machine has no GPU and two cores: software rendering runs at a few frames per second. Keep browser runs short, never run two at once, and allow generous timeouts.
 - Look at your level: `node tests/shots.mjs medium` style screenshots into `test-out/`, then open the PNG.
+
+## Calibration samples (`calib-*` levels)
+
+Throwaway challenges Mert rates to set the difficulty baseline. Conventions:
+- Difficulty comes from `deps.options.diff` (`'1' | '2' | '3'`, default 2).
+- Failure sends the crew back to the last checkpoint and counts a fail. No hard game-over.
+- On completion the host sets `session.set('calib.result', { level, diff, timeMs, fails, stars })` (stars 1–3) and the level shows a short end card.
+- Machine-wide lock for browser tests, because several agents share two CPU cores: always run them as `flock /tmp/nv-browser.lock node tests/<name>.mjs`.
