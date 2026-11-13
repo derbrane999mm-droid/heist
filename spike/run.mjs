@@ -1,0 +1,17 @@
+import { chromium } from 'playwright-core';
+import { PeerServer } from 'peer';
+import { createServer } from 'vite';
+const ps = PeerServer({ port: 9000, path: '/', host: '127.0.0.1' });
+const vite = await createServer({ root: new URL('.', import.meta.url).pathname, server: { port: 5199, host: '127.0.0.1' }, logLevel: 'error' });
+await vite.listen();
+const browser = await chromium.launch({ executablePath: '/usr/bin/google-chrome', headless: true, args: ['--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist', '--use-fake-ui-for-media-stream', '--use-fake-device-for-media-stream', '--disable-features=WebRtcHideLocalIpsWithMdns', '--autoplay-policy=no-user-gesture-required'] });
+const ctx = await browser.newContext({ viewport: { width: 1280, height: 720 } });
+const mk = async (role) => { const p = await ctx.newPage(); p.on('pageerror', (e) => console.log(role, 'PAGEERROR', e.message)); p.on('console', (m) => { if (m.type() === 'error') console.log(role, 'console.error', m.text()); }); await p.goto('http://127.0.0.1:5199/?role=' + role); return p; };
+const host = await mk('host');
+await host.waitForFunction(() => window.__log?.some((l) => l.startsWith('open')), null, { timeout: 30000 });
+const client = await mk('client');
+await client.waitForTimeout(15000);
+console.log('HOST', await host.evaluate(() => [window.__frames, ...window.__log]));
+console.log('CLIENT', await client.evaluate(() => [window.__frames, ...window.__log]));
+await host.screenshot({ path: 'shot.png' });
+await browser.close(); await vite.close(); ps.close?.(); process.exit(0);
