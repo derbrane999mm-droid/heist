@@ -38,8 +38,10 @@ export class Player {
   flashlightOn = false;
   /** Scripted override: when > 0 the flashlight is forced dark (power surge). */
   flashlightGlitch = 0;
-  /** When false the player cannot move or look (menus, cutscenes). */
+  /** When false the player cannot move or look. Set by the frame loop (menus): levels use `frozen`. */
   control = true;
+  /** Levels set this to take the player's controls away (vehicles, mini-game overlays, cutscenes). */
+  frozen = false;
   readonly eye = new THREE.Vector3();
   readonly forward = new THREE.Vector3();
   private vel = new THREE.Vector3();
@@ -116,7 +118,7 @@ export class Player {
 
   update(dt: number) {
     const input = this.input;
-    const active = this.control && input.enabled;
+    const active = this.control && input.enabled && !this.frozen;
 
     // --- look
     const [mx, my] = input.consumeMouse();

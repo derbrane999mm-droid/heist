@@ -104,6 +104,7 @@ export class Session {
   onStatus: ((s: Status) => void) | null = null;
   private stateListeners = new Set<(path: string, value: any) => void>();
   private eventListeners = new Set<(name: string, args: any) => void>();
+  private castListeners = new Set<(name: string, data: any) => void>();
   private intents = new Map<string, (pid: string, args: any) => void>();
 
   // host
@@ -447,10 +448,15 @@ export class Session {
         case 'ps':
           this.clientPoses(d);
           break;
+        case 'c':
+          for (const l of this.castListeners) l(d.n, d.a);
+          break;
       }
     });
     unrel.on('data', (d: any) => {
-      if (d && d.t === 'ps') this.clientPoses(d);
+      if (!d) return;
+      if (d.t === 'ps') this.clientPoses(d);
+      else if (d.t === 'c') for (const l of this.castListeners) l(d.n, d.a);
     });
     const lost = () => {
       if (this.closed || this.rel !== rel) return;
@@ -605,6 +611,29 @@ export class Session {
   onEvent(fn: (name: string, args: any) => void): () => void {
     this.eventListeners.add(fn);
     return () => this.eventListeners.delete(fn);
+  }
+
+  /**
+   * Host only: fast-changing data for everyone else (enemy positions, vehicle
+   * state). Unreliable and unordered: send absolute state, packets may drop.
+   */
+  cast(name: string, data: any) {
+    if (!this.isHost) return;
+    const msg = { t: 'c', n: name, a: data };
+    for (const link of this.links.values()) {
+      const c = link.unrel?.open ? link.unrel : link.rel.open ? link.rel : null;
+      if (!c) continue;
+      try {
+        c.send(msg);
+      } catch {
+        /* ignore */
+      }
+    }
+  }
+
+  onCast(fn: (name: string, data: any) => void): () => void {
+    this.castListeners.add(fn);
+    return () => this.castListeners.delete(fn);
   }
 
   /** Ask the host to do something. Runs immediately if we are the host. */

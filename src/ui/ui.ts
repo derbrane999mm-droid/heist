@@ -7,7 +7,7 @@ import type { MicState } from '../net/voice';
 export const VERSION = '0.1.1';
 
 type Child = Node | string | null | undefined | false;
-function h<K extends keyof HTMLElementTagNameMap>(tag: K, props: Record<string, any> = {}, ...children: Child[]): HTMLElementTagNameMap[K] {
+export function h<K extends keyof HTMLElementTagNameMap>(tag: K, props: Record<string, any> = {}, ...children: Child[]): HTMLElementTagNameMap[K] {
   const el = document.createElement(tag);
   for (const k in props) {
     const v = props[k];
@@ -26,10 +26,12 @@ export interface UIEvents {
   onLeave(): void;
   onInvite(): void;
   onSound(kind: 'ui' | 'uiHover'): void;
+  onReset(): void;
 }
 
 export interface CrewRow {
   name: string;
+  role: string;
   color: number;
   you: boolean;
   host: boolean;
@@ -67,6 +69,7 @@ export class UI {
   private lastCrew = '';
   private lastMic = '';
   private codeDraft = '';
+  private resetArmed = false;
 
   constructor(
     root: HTMLElement,
@@ -146,10 +149,28 @@ export class UI {
     if (this.mode === 'none') return;
     const col = h('div', { class: 'menu-col' });
     if (this.view === 'settings') {
-      col.append(h('div', { class: 'label' }, t('menu.settings')), this.settingsPanel(), this.btn('menu.back', 'ghost', () => {
-        this.view = 'home';
-        this.renderMenu();
-      }));
+      col.append(h('div', { class: 'label' }, t('menu.settings')), this.settingsPanel());
+      if (this.mode === 'main') {
+        col.append(
+          this.btn(this.resetArmed ? 'menu.reset.confirm' : 'menu.reset', 'danger', () => {
+            if (!this.resetArmed) {
+              this.resetArmed = true;
+            } else {
+              this.resetArmed = false;
+              this.ev.onReset();
+              this.toast(t('menu.reset.done'));
+            }
+            this.renderMenu();
+          }),
+        );
+      }
+      col.append(
+        this.btn('menu.back', 'ghost', () => {
+          this.view = 'home';
+          this.resetArmed = false;
+          this.renderMenu();
+        }),
+      );
     } else if (this.mode === 'main') {
       const name = h('input', { type: 'text', maxlength: '16', placeholder: t('menu.name.ph'), value: settings.get('name'), autocomplete: 'off', spellcheck: 'false' });
       name.addEventListener('input', () => settings.set('name', name.value.trim().slice(0, 16)));
@@ -274,13 +295,14 @@ export class UI {
 
   // ---------------------------------------------------------------- HUD
 
-  setPrompt(p: { text: string; hold: boolean } | null) {
-    const key = p ? (p.hold ? 'H' : 'P') + p.text : '';
+  setPrompt(p: { text: string; hold: boolean; locked?: boolean } | null) {
+    const key = p ? (p.locked ? 'L' : p.hold ? 'H' : 'P') + p.text : '';
     if (key === this.lastPrompt) return;
     this.lastPrompt = key;
-    this.crosshair.classList.toggle('focus', !!p);
+    this.crosshair.classList.toggle('focus', !!p && !p.locked);
     this.promptEl.classList.toggle('hidden', !p);
-    if (p) this.promptEl.replaceChildren(h('span', { class: 'keycap' }, 'E'), h('span', {}, p.text));
+    this.promptEl.classList.toggle('locked', !!p?.locked);
+    if (p) this.promptEl.replaceChildren(p.locked ? h('span', { class: 'lockcap' }, '×') : h('span', { class: 'keycap' }, 'E'), h('span', {}, p.text));
   }
 
   setObjective(lines: string[]) {
@@ -306,6 +328,7 @@ export class UI {
           { class: 'crew-item' },
           h('i', { class: 'crew-dot', style: `background:${hex};box-shadow:0 0 8px ${hex}` }),
           h('span', { class: 'crew-name' }, r.name),
+          r.role ? h('span', { class: 'crew-role' }, r.role) : null,
           h('span', { class: 'bars' + (r.talking ? ' on' : '') }, h('i'), h('i'), h('i')),
           meta ? h('span', { class: 'crew-meta' }, meta) : null,
         ),

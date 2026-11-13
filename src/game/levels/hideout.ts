@@ -14,6 +14,7 @@ import type { LoopHandle } from '../../core/audio';
 import { Custodian } from '../custodian';
 import { t, onLangChange } from '../../core/i18n';
 import { loadCampaign, saveCampaign } from '../../core/save';
+import { holder, lineupNeeded, lineupRunning, mayAct, type LineupState, type RoleId } from '../lineup';
 
 interface Tut {
   code: number[]; // digit per colour index (0 red, 1 blue, 2 green, 3 yellow)
@@ -107,6 +108,13 @@ export function createHideout(deps: LevelDeps): Level {
   let lastRelayBy: string | null = null;
 
   const tut = (): Tut | undefined => session?.get<Tut>('tut');
+  /** "Only THE BRAIN can touch this (Ben)" */
+  const roleLock = (role: RoleId): string => {
+    const who = holder(session, role);
+    return t('lock.role', { role: t('role.' + role), name: (who && session?.players.get(who)?.name) || '?' });
+  };
+  let ambient = 1; // room light level: dims while the lineup runs
+  let lineupIntro = false;
   const isPowered = (): boolean => {
     const s = tut();
     if (!s || !session) return false;
@@ -420,6 +428,11 @@ export function createHideout(deps: LevelDeps): Level {
         object: mesh,
         range: 1.9,
         prompt: () => (!session || tut()?.open ? null : k === 'c' ? t('prompt.clear') : t('prompt.key', { k: String(k) })),
+        locked: () => {
+          if (!session || tut()?.open) return null;
+          if (lineupNeeded(session)) return t('lock.lineup');
+          return mayAct(session, 'brain') ? null : roleLock('brain');
+        },
         onUse: () => {
           entry.press = 1;
           session?.intent('key', { k });
@@ -722,6 +735,7 @@ export function createHideout(deps: LevelDeps): Level {
       if (s.relayBy && s.relayBy !== session!.pid) return null;
       return s.relayBy === session!.pid ? t('prompt.relay.held') : t('prompt.relay');
     },
+    locked: () => (session && !tut()?.open && lineupNeeded(session) ? t('lock.lineup') : null),
     onHoldStart: () => session?.intent('relay', { down: true }),
     onHoldEnd: () => session?.intent('relay', { down: false }),
   });
@@ -733,7 +747,28 @@ export function createHideout(deps: LevelDeps): Level {
       const s = tut();
       return s && s.open && !s.kit && doorProgress >= 1 ? t('prompt.kit') : null;
     },
+    locked: () => {
+      const s = tut();
+      if (!s || !s.open || s.kit || doorProgress < 1) return null;
+      return mayAct(session, 'bait') ? null : roleLock('bait');
+    },
     onUse: () => session?.intent('kit'),
+  });
+  const lineupTarget = new THREE.Mesh(new THREE.CylinderGeometry(0.8, 0.8, 1.7, 16), new THREE.MeshBasicMaterial({ visible: false }));
+  lineupTarget.position.set(0, 1.85, 0);
+  b.group.add(lineupTarget);
+  interactions.add({
+    id: 'lineup',
+    object: lineupTarget,
+    range: 3.2,
+    prompt: () => {
+      if (!session || !session.isHost) return null;
+      const l = session.get<LineupState>('lineup');
+      if (!l || l.phase === 'vote' || l.phase === 'reveal') return null;
+      if (session.players.size === 1) return t('prompt.lineupPreview');
+      return l.phase === 'done' && !l.preview ? t('prompt.lineupRedo') : t('prompt.lineup');
+    },
+    onUse: () => session?.intent('lineup.start'),
   });
   interactions.add({
     id: 'board',
@@ -775,6 +810,7 @@ export function createHideout(deps: LevelDeps): Level {
     s.handle('relay', (pid, a) => {
       const cur = s.get<Tut>('tut');
       if (cur.open) return;
+      if (a?.down && lineupNeeded(s)) return;
       if (a?.down) {
         if (cur.relayBy) return;
         s.set('tut.relayBy', pid);
@@ -785,9 +821,10 @@ export function createHideout(deps: LevelDeps): Level {
         }
       } else if (cur.relayBy === pid) release();
     });
-    s.handle('key', (_pid, a) => {
+    s.handle('key', (pid, a) => {
       const cur = s.get<Tut>('tut');
       if (cur.open) return;
+      if (lineupNeeded(s) || !mayAct(s, 'brain', pid)) return;
       const k = a?.k;
       s.emit('sfx', { n: 'key', p: KEYPAD_POS.toArray(), r: k === 'c' ? 0.7 : 1 + (Number(k) % 5) * 0.03 });
       if (k === 'c') {
@@ -827,9 +864,10 @@ export function createHideout(deps: LevelDeps): Level {
         }
       }
     });
-    s.handle('kit', () => {
+    s.handle('kit', (pid) => {
       const cur = s.get<Tut>('tut');
       if (!cur.open || cur.kit) return;
+      if (!mayAct(s, 'bait', pid)) return;
       s.set('tut.kit', true);
       s.emit('sfx', { n: 'pickup', p: KIT_POS.toArray() });
       s.emit('say', { k: 'sub.kit' });
@@ -859,6 +897,8 @@ export function createHideout(deps: LevelDeps): Level {
   const attach = (s: Session) => {
     session = s;
     introShown = false;
+    lineupIntro = false;
+    ambient = 1;
     blackoutAt = -1;
     blackoutStage = 0;
     if (s.isHost) installHost(s);
@@ -925,6 +965,7 @@ export function createHideout(deps: LevelDeps): Level {
     doorProgress = 0;
     blackoutAt = -1;
     flickerT = -1;
+    ambient = 1;
     b.setPower(1);
     engine.scene.environmentIntensity = ENV_INTENSITY;
     ui.setVeil(0);
@@ -972,13 +1013,27 @@ export function createHideout(deps: LevelDeps): Level {
     }
     const now = session.hostNow();
 
-    // intro lines, once per session, only while the puzzle is still unsolved
-    if (!introShown) {
+    // Broker's opening lines. A crew of two or more does the lineup first.
+    const needLineup = lineupNeeded(session);
+    const running = lineupRunning(session);
+    if (needLineup && !running && !lineupIntro && !s.open) {
+      lineupIntro = true;
+      ui.say(session.isHost ? 'sub.lineupIntroHost' : 'sub.lineupIntro');
+    }
+    if (!introShown && !needLineup && !running) {
       introShown = true;
       if (!s.open) {
         ui.say('sub.intro1');
         ui.say('sub.intro2');
       }
+    }
+
+    // the room dims while the lineup runs
+    const dimTarget = running ? 0.42 : 1;
+    if (Math.abs(dimTarget - ambient) > 0.002) {
+      ambient += (dimTarget - ambient) * (1 - Math.exp(-3 * dt));
+      if (Math.abs(dimTarget - ambient) <= 0.002) ambient = dimTarget;
+      if (flickerT < 0 && (blackoutAt < 0 || blackoutStage === 0 || blackoutStage === 4)) applyPower(ambient);
     }
 
     // --- relay + decoder power
@@ -1042,8 +1097,8 @@ export function createHideout(deps: LevelDeps): Level {
       const i = Math.floor(flickerT / 0.07);
       if (i >= pattern.length) {
         flickerT = -1;
-        applyPower(1);
-      } else applyPower(pattern[i]);
+        applyPower(ambient);
+      } else applyPower(pattern[i] * ambient);
     }
 
     // --- the blackout: lights die, something moves, lights return
@@ -1073,7 +1128,7 @@ export function createHideout(deps: LevelDeps): Level {
         const i = Math.floor(k / 0.07);
         if (i >= pattern.length) {
           blackoutStage = 4;
-          applyPower(1);
+          applyPower(ambient);
           custodian.flashEyes();
           audio.play('stinger', { vol: 0.8 });
         } else applyPower(pattern[i]);
@@ -1103,9 +1158,16 @@ export function createHideout(deps: LevelDeps): Level {
     update,
     objective() {
       const s = tut();
-      if (!s) return [];
-      if (!s.open) return s.seen ? [t('obj.read'), t('obj.enter')] : [t('obj.relay')];
-      if (!s.kit) return [t('obj.kit')];
+      if (!s || !session) return [];
+      if (lineupRunning(session)) return [t('obj.lineupRun')];
+      if (!s.open && lineupNeeded(session)) return [t(session.isHost ? 'obj.lineupHost' : 'obj.lineup')];
+      const named = (role: RoleId, withRole: string, plain: string) => {
+        const who = holder(session, role);
+        const name = who ? session!.players.get(who)?.name : undefined;
+        return name ? t(withRole, { name, role: t('role.' + role) }) : t(plain);
+      };
+      if (!s.open) return s.seen ? [t('obj.read'), named('brain', 'obj.enterRole', 'obj.enter')] : [t('obj.relay')];
+      if (!s.kit) return [named('bait', 'obj.kitRole', 'obj.kit')];
       if (!s.board) return [t('obj.board')];
       return [t('obj.done')];
     },

@@ -136,6 +136,11 @@ export class Input {
     return BINDINGS[a].some((c) => this.released.has(c));
   }
 
+  /** Edge-triggered check for a physical key that is not a bound action (number keys). */
+  codePressed(code: string): boolean {
+    return this.enabled && this.pressed.has(code);
+  }
+
   /** "Use" is E or the left mouse button. */
   useHeld(): boolean {
     return this.enabled && (this.held('use') || this.mouseDown);

@@ -7,12 +7,14 @@ export interface Campaign {
   crewReady: boolean;
   /** Per-mission results, filled in as missions ship. */
   missions: Record<string, { stars: number; best: number }>;
+  /** Lineup result: player id -> role id. */
+  roles: Record<string, 'brain' | 'gambler' | 'hands' | 'bait'>;
 }
 
 const KEY = 'nullvault.campaign.v1';
 
 export function emptyCampaign(): Campaign {
-  return { v: 1, crewReady: false, missions: {} };
+  return { v: 1, crewReady: false, missions: {}, roles: {} };
 }
 
 export function loadCampaign(): Campaign {
@@ -31,6 +33,14 @@ export function loadCampaign(): Campaign {
 export function saveCampaign(c: Campaign) {
   try {
     localStorage.setItem(KEY, JSON.stringify(c));
+  } catch {
+    /* ignore */
+  }
+}
+
+export function resetCampaign() {
+  try {
+    localStorage.removeItem(KEY);
   } catch {
     /* ignore */
   }

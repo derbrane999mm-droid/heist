@@ -23,7 +23,9 @@ export type Sfx =
   | 'scrape'
   | 'stinger'
   | 'lightsOn'
-  | 'radio';
+  | 'radio'
+  | 'tick'
+  | 'reveal';
 
 export interface PlayOpts {
   pos?: THREE.Vector3;
@@ -170,7 +172,7 @@ export class AudioEngine {
   }
 
   /** Output node for a one-shot: either positional or straight to the sfx bus. */
-  private out(opts: PlayOpts | undefined, vol: number): GainNode {
+  out(opts: PlayOpts | undefined, vol: number): GainNode {
     const g = this.ctx.createGain();
     g.gain.value = vol * (opts?.vol ?? 1);
     if (opts?.pos) g.connect(this.makePanner(opts.pos)).connect(this.sfxBus);
@@ -178,7 +180,8 @@ export class AudioEngine {
     return g;
   }
 
-  private tone(
+  /** Oscillator with a quick attack and exponential decay, optionally sweeping f0 -> f1. */
+  tone(
     dest: AudioNode,
     type: OscillatorType,
     f0: number,
@@ -202,7 +205,8 @@ export class AudioEngine {
     o.stop(t0 + dur + 0.02);
   }
 
-  private burst(
+  /** Filtered noise burst (clicks, impacts, hiss). */
+  burst(
     dest: AudioNode,
     filter: BiquadFilterType,
     freq: number,
@@ -384,6 +388,23 @@ export class AudioEngine {
         const o = this.out(opts, 0.22);
         for (let i = 0; i < 5; i++) this.burst(o, 'highpass', 5000, 0.8, t + i * 0.07 + Math.random() * 0.03, 0.02, 0.8);
         this.tone(o, 'sawtooth', 100, 100, t + 0.3, 0.5, 0.12, 0.2);
+        break;
+      }
+      case 'tick': {
+        const o = this.out(opts, 0.14);
+        this.tone(o, 'square', 620 * r, 600 * r, t, 0.035, 0.5);
+        this.burst(o, 'highpass', 3500, 0.7, t, 0.012, 0.5);
+        break;
+      }
+      case 'reveal': {
+        // short brassy hit with a low thump: "and the role goes to..."
+        const o = this.out(opts, 0.2);
+        for (const f of [196, 293.7, 392, 587.3]) {
+          this.tone(o, 'sawtooth', f, f, t, 0.9, 0.3, 0.015);
+          this.tone(o, 'sawtooth', f * 1.006, f * 1.006, t, 0.9, 0.22, 0.015);
+        }
+        this.tone(o, 'sine', 98, 49, t, 0.5, 1, 0.005);
+        this.burst(o, 'lowpass', 900, 0.7, t, 0.12, 0.8);
         break;
       }
       case 'radio': {

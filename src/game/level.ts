@@ -16,6 +16,8 @@ export interface LevelDeps {
   interactions: Interactions;
   ui: UI;
   player(): Player | null;
+  /** URL parameters (e.g. `diff` for difficulty 1..3 while developing a level). */
+  options: Record<string, string>;
 }
 
 export interface Level {

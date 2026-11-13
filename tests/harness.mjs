@@ -44,16 +44,17 @@ export async function startServers({ port = 5188, sigPort = 9010 } = {}) {
 }
 
 /** Open the game in a fresh browser context (own storage = own player). */
-export async function openPlayer(env, { name, quality = 'low', lang = 'en', width = 1280, height = 720, extra = '', noPause = true, renderSkip = 0 } = {}) {
+export async function openPlayer(env, { name, quality = 'low', lang = 'en', width = 1280, height = 720, extra = '', noPause = true, renderSkip = 0, lineupFast = false } = {}) {
   const ctx = await env.browser.newContext({ viewport: { width, height } });
   await ctx.addInitScript(
-    ([name, quality, lang, noPause, renderSkip]) => {
+    ([name, quality, lang, noPause, renderSkip, lineupFast]) => {
       localStorage.setItem('nullvault.settings.v1', JSON.stringify({ name, quality, lang, color: Math.floor(Math.random() * 6), music: 0.2 }));
       window.__nvNoTune = true;
       window.__nvNoPause = noPause;
       window.__nvRenderSkip = renderSkip;
+      window.__nvLineupFast = lineupFast;
     },
-    [name, quality, lang, noPause, renderSkip],
+    [name, quality, lang, noPause, renderSkip, lineupFast],
   );
   const page = await ctx.newPage();
   const errors = [];

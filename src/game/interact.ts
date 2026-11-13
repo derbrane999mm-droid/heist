@@ -9,6 +9,8 @@ export interface Interactable {
   object: THREE.Object3D;
   /** Text after "Press E to …" / "Hold E to …"; null hides the prompt and disables use. */
   prompt(): string | null;
+  /** If this returns text, the object shows that text instead and cannot be used. */
+  locked?(): string | null;
   hold?: boolean;
   range?: number;
   onUse?(): void;
@@ -23,7 +25,7 @@ export class Interactions {
   focused: Interactable | null = null;
   holding: Interactable | null = null;
   /** Prompt for the HUD: `{ text, hold }` or null. */
-  promptText: { text: string; hold: boolean } | null = null;
+  promptText: { text: string; hold: boolean; locked?: boolean } | null = null;
 
   constructor(
     private physics: Physics,
@@ -82,7 +84,7 @@ export class Interactions {
           if (!item) continue;
           if (hit.distance > (item.range ?? 2.4)) break;
           if (wall !== null && wall < hit.distance - 0.2) break; // something solid is in the way
-          if (item.prompt() !== null) best = item;
+          if (item.locked?.() || item.prompt() !== null) best = item;
           break;
         }
       }
@@ -93,6 +95,12 @@ export class Interactions {
     if (this.holding && (this.holding !== best || !this.input.useHeld() || !enabled)) this.endHold();
 
     if (best && enabled) {
+      const lock = best.locked?.() ?? null;
+      if (lock) {
+        if (this.holding) this.endHold();
+        this.promptText = { text: lock, hold: false, locked: true };
+        return;
+      }
       if (best.hold) {
         if (!this.holding && this.input.usePressed()) {
           this.holding = best;
@@ -111,7 +119,7 @@ export class Interactions {
   /** Test hook: trigger an interaction by id regardless of aim. */
   debugUse(id: string, hold?: boolean) {
     const i = this.items.get(id);
-    if (!i || i.prompt() === null) return false;
+    if (!i || i.locked?.() || i.prompt() === null) return false;
     if (i.hold) {
       if (hold === false) {
         if (this.holding === i) this.endHold();

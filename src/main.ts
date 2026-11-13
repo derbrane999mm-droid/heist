@@ -9,11 +9,13 @@ import { createMaterials } from './game/materials';
 import { Interactions } from './game/interact';
 import { Player } from './game/player';
 import { Avatar } from './game/avatar';
-import { createHideout } from './game/levels/hideout';
+import { LEVELS } from './game/levels';
 import type { Level } from './game/level';
 import { Session, normalizeCode, MAX_PLAYERS, type JoinError } from './net/session';
 import { Voice } from './net/voice';
 import { UI, type CrewRow } from './ui/ui';
+import { LineupView, installLineupHost, roleOf } from './game/lineup';
+import { resetCampaign } from './core/save';
 
 type Mode = 'menu' | 'playing';
 
@@ -38,6 +40,7 @@ async function boot() {
       onLeave: () => leave(),
       onInvite: () => void copyInvite(),
       onSound: (k) => audio.play(k),
+      onReset: () => resetCampaign(),
     },
     invite.length === 5 ? invite : null,
   );
@@ -73,6 +76,7 @@ async function boot() {
   const mats = createMaterials(Math.min(8, engine.renderer.capabilities.getMaxAnisotropy()), engine.quality.name !== 'low');
   stage('materials');
   const interactions = new Interactions(physics, input);
+  const lineupView = new LineupView(document.getElementById('ui')!, input, audio, ui);
   // Every light that can ever exist is created now. The number of lights is part
   // of each compiled shader, so adding one later would recompile everything.
   const flashlight = Player.createFlashlight(engine);
@@ -88,7 +92,9 @@ async function boot() {
     flashlight.castShadow = qp.shadows && qp.name !== 'medium';
   };
 
-  level = createHideout({ engine, physics, audio, mats, interactions, ui, player: () => player });
+  const levelName = q.get('level') ?? 'hideout';
+  const options = Object.fromEntries(q.entries());
+  level = (LEVELS[levelName] ?? LEVELS.hideout)({ engine, physics, audio, mats, interactions, ui, player: () => player, options });
 
   // compile everything behind the loading screen (including a crew member's suit)
   {
@@ -181,6 +187,8 @@ async function boot() {
       }
     };
     level.attach(s);
+    if (s.isHost) installLineupHost(s);
+    lineupView.attach(s);
     syncCrew();
 
     mode = 'playing';
@@ -225,6 +233,7 @@ async function boot() {
 
   function leave() {
     if (!session) return;
+    lineupView.detach();
     level.detach();
     voice?.dispose();
     voice = null;
@@ -285,6 +294,7 @@ async function boot() {
       session!.sendPose(player!.pose());
       interactions.update(player!.eye, player!.forward, player!.body.collider, inControl);
       ui.setPrompt(interactions.promptText);
+      lineupView.update();
 
       if (input.justPressed('mute')) {
         settings.set('micMuted', !settings.get('micMuted'));
@@ -319,8 +329,14 @@ async function boot() {
         for (const p of session.players.values()) {
           const you = p.pid === session.pid;
           const talking = you ? (voice?.speaking ?? false) : (voice?.isTalking(p.pid) ?? false);
-          rows.push({ name: p.name, color: p.color, you, host: p.host, talking });
-          if (!you) avatars.get(p.pid)?.setTalking(talking);
+          const role = roleOf(session, p.pid);
+          const roleLabel = role ? t(`role.${role}.short`) : '';
+          rows.push({ name: p.name, role: roleLabel, color: p.color, you, host: p.host, talking });
+          if (!you) {
+            const av = avatars.get(p.pid);
+            av?.setTalking(talking);
+            av?.setRole(roleLabel);
+          }
         }
         ui.setCrew(session.code, rows);
         ui.setMic(voice ? voice.micState() : 'off', voice?.speaking ?? false);

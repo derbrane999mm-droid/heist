@@ -681,3 +681,218 @@ input[type='range'] {
     max-width: 52vw;
   }
 }
+
+/* ---------- prompt: locked ---------- */
+.prompt.locked {
+  color: var(--warn);
+}
+.lockcap {
+  font-family: var(--mono);
+  font-size: 15px;
+  min-width: 28px;
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1.5px solid var(--warn);
+  color: var(--warn);
+  border-radius: 5px;
+  background: rgba(20, 10, 2, 0.7);
+}
+.crew-role {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  color: var(--accent);
+  border: 1px solid rgba(53, 230, 208, 0.4);
+  border-radius: 3px;
+  padding: 1px 5px;
+}
+
+/* ---------- the lineup ---------- */
+.lineup {
+  position: absolute;
+  left: 50%;
+  top: 74px;
+  transform: translateX(-50%);
+  width: min(660px, 62vw);
+  padding: 18px 22px 18px;
+  background: rgba(6, 9, 13, 0.9);
+  border: 1px solid var(--line-strong);
+  border-top: 3px solid var(--warn);
+  border-radius: 4px;
+  backdrop-filter: blur(10px);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.lu-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+}
+.lu-head .label {
+  color: var(--warn);
+}
+.lu-round {
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--dim);
+}
+.lu-preview {
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  color: var(--warn);
+}
+.lu-q {
+  font-size: clamp(22px, 2.3vw, 30px);
+  font-weight: 600;
+  line-height: 1.2;
+}
+.lu-role {
+  font-size: 30px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+}
+.lu-becomes {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 14px;
+  color: var(--dim);
+}
+.lu-becomes b {
+  color: var(--warn);
+  letter-spacing: 0.14em;
+  font-size: 15px;
+}
+.lu-rule {
+  flex-basis: 100%;
+  line-height: 1.4;
+}
+.lu-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 4px;
+}
+.lu-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.03);
+  font-size: 17px;
+  min-height: 46px;
+  transition: opacity 0.3s, background 0.12s, border-color 0.12s;
+}
+.lu-row.me {
+  opacity: 0.75;
+}
+.lu-row.spin {
+  border-color: var(--warn);
+  background: rgba(255, 162, 58, 0.16);
+}
+.lu-row.win {
+  border-color: var(--warn);
+  background: rgba(255, 162, 58, 0.22);
+  box-shadow: 0 0 26px rgba(255, 162, 58, 0.25);
+  opacity: 1;
+}
+.lu-row.dim {
+  opacity: 0.35;
+}
+.lu-nokey {
+  width: 28px;
+  flex: none;
+}
+.lu-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  flex: none;
+  display: inline-block;
+}
+.lu-name {
+  font-weight: 600;
+  white-space: nowrap;
+}
+.lu-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-left: auto;
+  justify-content: flex-end;
+}
+.lu-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  padding: 3px 8px;
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.08);
+  animation: toast-in 0.2s ease-out;
+}
+.lu-tick {
+  margin-left: auto;
+  color: var(--accent);
+  font-weight: 700;
+}
+.lu-timer {
+  height: 3px;
+  background: var(--line);
+  overflow: hidden;
+}
+.lu-timer i {
+  display: block;
+  height: 100%;
+  width: 100%;
+  background: var(--warn);
+  transform-origin: left center;
+}
+.lu-foot {
+  font-size: 13px;
+  color: var(--dim);
+  min-height: 18px;
+}
+.lu-verdict {
+  font-size: clamp(22px, 2.4vw, 32px);
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  color: var(--warn);
+  text-align: center;
+  padding-top: 4px;
+  animation: toast-in 0.25s ease-out;
+}
+.lu-crew {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+.lu-card {
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  padding: 10px 12px;
+  background: rgba(255, 255, 255, 0.03);
+}
+.lu-card-name {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 600;
+}
+.lu-card-role {
+  color: var(--warn);
+  letter-spacing: 0.14em;
+  font-weight: 700;
+  margin: 3px 0;
+}
+.lu-card-rule {
+  font-size: 12px;
+  color: var(--dim);
+  line-height: 1.4;
+}

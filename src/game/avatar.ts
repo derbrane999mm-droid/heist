@@ -46,6 +46,7 @@ export class Avatar {
   private hasPos = false;
   private talking = false;
   private name = '';
+  private role = '';
   private lightLevel = 0;
   private headQuat = new THREE.Quaternion();
   private aim = new THREE.Vector3();
@@ -158,6 +159,12 @@ export class Avatar {
     this.drawTag();
   }
 
+  setRole(role: string) {
+    if (role === this.role) return;
+    this.role = role;
+    this.drawTag();
+  }
+
   setTalking(t: boolean) {
     if (t === this.talking) return;
     this.talking = t;
@@ -171,9 +178,11 @@ export class Avatar {
     ctx.font = `600 44px ${FONT}`;
     ctx.textBaseline = 'middle';
     const text = this.name || '…';
-    const tw = Math.min(380, ctx.measureText(text).width);
+    const tw = Math.min(260, ctx.measureText(text).width);
+    ctx.font = `600 26px ${FONT}`;
+    const rw = this.role ? Math.min(150, ctx.measureText(this.role).width) + 22 : 0;
     const iconW = this.talking ? 54 : 0;
-    const w = tw + 56 + iconW;
+    const w = tw + 56 + rw + iconW;
     const x = (c.width - w) / 2;
     ctx.fillStyle = 'rgba(6,9,13,0.72)';
     ctx.beginPath();
@@ -183,13 +192,19 @@ export class Avatar {
     ctx.fillStyle = col;
     ctx.fillRect(x, 12, 6, 72);
     ctx.fillStyle = '#eef4f8';
-    ctx.fillText(text, x + 28, 50, 380);
+    ctx.font = `600 44px ${FONT}`;
+    ctx.fillText(text, x + 28, 50, 260);
+    if (this.role) {
+      ctx.fillStyle = col;
+      ctx.font = `600 26px ${FONT}`;
+      ctx.fillText(this.role, x + 28 + tw + 18, 52, 150);
+    }
     if (this.talking) {
-      const ix = x + 28 + tw + 22;
+      const ix = x + 28 + tw + rw + 22;
       ctx.fillStyle = col;
       for (let i = 0; i < 3; i++) {
-        const h = [20, 38, 26][i];
-        ctx.fillRect(ix + i * 12, 48 - h / 2, 7, h);
+        const hh = [20, 38, 26][i];
+        ctx.fillRect(ix + i * 12, 48 - hh / 2, 7, hh);
       }
     }
     this.tagTex.needsUpdate = true;
