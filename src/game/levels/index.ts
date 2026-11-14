@@ -3,8 +3,10 @@
 import type { Level, LevelDeps } from '../level';
 import { createHideout } from './hideout';
 import { createCalibHack } from './calib-hack';
+import { createCalibRange } from './calib-range';
 
 export const LEVELS: Record<string, (deps: LevelDeps) => Level> = {
   hideout: createHideout,
   hack: createCalibHack,
+  range: createCalibRange,
 };
