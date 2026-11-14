@@ -155,7 +155,7 @@ export interface OpenTask {
   /** whose job it normally is */
   holder: string | null;
   /** what I may press here: key, task kind ('lock' | 'safe' | 'drill' | 'crow'), choice id */
-  opts: { key: 'E' | 'F'; task: string; id: string }[];
+  opts: { key: 'E' | 'B'; task: string; id: string }[];
   /** for 'take': the request number; for 'choice': '' */
   ref: string;
 }
@@ -623,8 +623,8 @@ export class JobDirector {
     this.openNow = ot;
     const inp = (this.d.view as unknown as { input?: Input }).input;
     const e = this.ui.takeE() || !!inp?.codePressed('KeyE');
-    const f = this.ui.takeF() || !!inp?.codePressed('KeyF');
-    const o = ot.opts.find((x) => (x.key === 'E' && e) || (x.key === 'F' && f));
+    const f = this.ui.takeF() || !!inp?.codePressed('KeyB'); // second prompt key: B (F is the flashlight)
+    const o = ot.opts.find((x) => (x.key === 'E' && e) || (x.key === 'B' && f));
     if (!o) return;
     this.tookKey = ot.ref;
     this.openNow = null;

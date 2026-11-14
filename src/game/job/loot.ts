@@ -341,6 +341,8 @@ export class JobLoot {
       if (k >= this.meshes.length) break;
       const m = this.meshes[k++];
       m.material = b.t === 'lager' ? this.crateMat : this.bagMat;
+      // my own bag is close to the eye: smaller, so it does not fill the view
+      m.scale.setScalar(b.s === 'carry' && b.by === pid ? 0.55 : 1);
       if (b.s === 'lie') {
         m.position.set(b.x, b.y, b.z);
         m.rotation.set(0, b.x * 3.1 + b.z, 0);

@@ -446,7 +446,7 @@ export class JobHud {
       this.intro.classList.add('hidden');
     }
     if (e.code === 'KeyE') this.ePressed = true;
-    if (e.code === 'KeyF') this.fPressed = true;
+    if (e.code === 'KeyB') this.fPressed = true;
     const m = /^(?:Digit|Numpad)([1-9])$/.exec(e.code);
     if (m && this.popKind) {
       e.preventDefault();

@@ -224,7 +224,7 @@ export interface Decision {
    * crew finds one prompt per option at the place (`at`: 'door' | 'safe'); whoever starts one there chooses
    * it (and takes the task that follows). `role`: whose way it normally is (null: anyone inside).
    */
-  world?: { at: string; opts: { id: string; key: 'E' | 'F'; role: Role | null; task: string }[] };
+  world?: { at: string; opts: { id: string; key: 'E' | 'B'; role: Role | null; task: string }[] };
 }
 export interface OffersStep {
   kind: 'offers';
@@ -1383,7 +1383,7 @@ export function* runJob(S: Game): Generator<Step, any, any> {
     const opts = hIn
       ? [opt('pick', 'op.pick', 'op.pick.t', pF, 'pl.noFumble', [tmin(lockT), tg('quiet')], T('op.pick.d')), opt('crow', 'op.crow', 'op.crow.t', 100, 'pl.sure', [tmin(1), tg('loud')], T('op.crow.d'))]
       : [opt('pick', 'op.pickOther', 'op.pickOther.t', 50, 'pl.success', [tmin(6)], T('op.pickOther.d')), opt('crow', 'op.crow', 'op.crow.t', 100, 'pl.sure', [tmin(1), tg('loud')], T('op.crow.d'))];
-    const world = { at: 'door', opts: [{ id: 'pick', key: 'E' as const, role: 'hands' as Role, task: 'lock' }, { id: 'crow', key: 'F' as const, role: null, task: 'crow' }] };
+    const world = { at: 'door', opts: [{ id: 'pick', key: 'E' as const, role: 'hands' as Role, task: 'lock' }, { id: 'crow', key: 'B' as const, role: null, task: 'crow' }] };
     const c = yield* decide({ title: T('dc.door'), who: hIn ? 'hands' : insideOk()[0], text: T('dc.door.t', { e: T('en.' + P.entrance + '.name') }), options: opts, world });
     if (c === 'pick') {
       if (hIn) {
@@ -1519,7 +1519,7 @@ export function* runJob(S: Game): Generator<Step, any, any> {
             opt('quiet', 'op.quiet', 'op.quiet.t', rollP(pK, 'brain'), 'pl.firstTry', [tmin(quiet), tg('quiet')], T('op.quiet.d')),
             opt('drill', 'op.drill', 'op.drill.t', rollP(100 - fumbleP(), 'hands'), 'pl.noFumble', [tmin(drill), tg('loud')], T('op.drill.d')),
           ],
-          world: { at: 'safe', opts: [{ id: 'quiet', key: 'E', role: 'brain', task: 'safe' }, { id: 'drill', key: 'F', role: 'hands', task: 'drill' }] },
+          world: { at: 'safe', opts: [{ id: 'quiet', key: 'E', role: 'brain', task: 'safe' }, { id: 'drill', key: 'B', role: 'hands', task: 'drill' }] },
         });
       } else method = quiet ? 'quiet' : 'drill';
       if (method === 'quiet') {

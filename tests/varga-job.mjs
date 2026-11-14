@@ -274,9 +274,9 @@ try {
     };
     const pressKey = async (page, code, ms = 150) => {
       await page.evaluate((c) => window.__nv.input.debugSet(c, true), code);
-      await page.keyboard.down(code === 'KeyE' ? 'e' : code === 'KeyF' ? 'f' : code);
+      await page.keyboard.down(code === 'KeyE' ? 'e' : code === 'KeyB' ? 'b' : code);
       await sleep(ms);
-      await page.keyboard.up(code === 'KeyE' ? 'e' : code === 'KeyF' ? 'f' : code);
+      await page.keyboard.up(code === 'KeyE' ? 'e' : code === 'KeyB' ? 'b' : code);
       await page.evaluate((c) => window.__nv.input.debugSet(c, false), code);
     };
     const T = { ...TIMES, skill: 32000, gate: 15000, loot: 60000 };
@@ -350,7 +350,7 @@ try {
             got.add('safe');
             await fshot(page, 'safe-both-prompts');
             console.log('      safe:', s2.obj, '|', s2.promptText);
-            check(`feel ${tag}: the safe shows both ways as prompts, no pop-up`, /E/.test(s2.promptText) && /F/.test(s2.promptText) && !s2.popup, s2.promptText);
+            check(`feel ${tag}: the safe shows both ways as prompts, no pop-up`, /E/.test(s2.promptText) && /B/.test(s2.promptText) && !s2.popup, s2.promptText);
           }
           await pressKey(page, 'KeyE');
           await sleep(600);

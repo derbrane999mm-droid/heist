@@ -237,7 +237,7 @@ try {
   // ================================================================ solo on the test level
   if (want('solo')) {
     const page = await openPlayer(env, { width: 960, height: 600, name: 'Mert', quality: 'low', lang: 'de', renderSkip: 20, extra: '&level=job' });
-    await page.evaluate(([t, s]) => { window.__nvPlanTimes = t; window.__nvPlanSeed = s; }, [{ ...TIMES, gate: 3000 }, SEED]);
+    await page.evaluate(([t, s]) => { window.__nvPlanTimes = t; window.__nvPlanSeed = s; }, [{ ...TIMES, gate: 3000, skill: 3000, loot: 3000 }, SEED]);
     await page.evaluate(() => window.__nv.start(null));
     await until(() => page.evaluate(() => !!window.__nv.player), 150000);
     await page.evaluate(() => window.__nv.plan.start());

@@ -115,7 +115,8 @@ async function drive(page, me, { hold = false, finishSkill = true, offerMode = '
           await sleep(250);
           break;
         }
-        if (stats.carry === 'one' && inVan > 0 && !L.left && L.bags.some((b) => b.s === 'lie') && van && !stats.departed) {
+        // (only once the job heads out: no driving off while targets are still on the plan)
+        if (stats.carry === 'one' && inVan > 0 && !L.left && L.bags.some((b) => b.s === 'lie') && van && !stats.departed && p.run.beats.some((b) => b.title.k === 'bt.out')) {
           // "Abfahrt": hold E at the van; everyone sees the countdown
           await page.evaluate((a) => window.__nv.tp(a.x, a.y + 0.02, a.z + 0.3), van);
           await sleep(250);
