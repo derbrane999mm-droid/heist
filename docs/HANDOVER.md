@@ -1,10 +1,35 @@
 # Handover
 
-State of the project on 2026-11-14, written at the end of the cloud session that built everything so far. The next block is meant to run in a local Claude Code session on Mert's Mac (M5 Pro, 64 GB), because the cloud sandbox had no GPU, two cores and could not reach the big free asset sites.
+**Read this block first. It is the state at the end of the long local session on 2026-11-14 (about 20:15). Everything below it is the older handover and is still true for what it describes.**
 
-- **Play link:** https://derbrane999mm-droid.github.io/heist/
-- **Repo:** https://github.com/derbrane999mm-droid/heist (`main` = source, `gh-pages` = published site)
-- **Build:** 0.4.0
+## Where we are (2026-11-14 evening)
+
+- **Deadline: the four friends play on 2026-11-15 at 19:00.** Decide around noon that day what is in: anything in first person that is not solid falls away and the evening runs on the proven planning round in the HQ (that path is untouched and tested).
+- **Mert's last verdict (he played the first-person job solo):** he now feels he is doing something, the pop-ups are understandable, the hiss outside was far too loud (turned down since, not re-heard), it still flickers and stutters a little, and overall "not much happens, it is pretty dead" for the effort spent. **His instruction: stop building pieces. First fix the line of a mission (what exactly happens, in which order), then build the game around that line.** The draft line is `docs/MISSION.md` (German, spoiler-free, three open questions for him). Get his verdict on it before building anything else.
+- **Public site** (https://derbrane999mm-droid.github.io/heist/): HQ as the default level, the new preparation screens, the connection check, the relay. The first-person job is NOT active there (`DEFAULT_LEVEL` in `src/game/levels/index.ts` is `hq`).
+- **Review build for Mert:** `npx vite build --outDir dist-review`, served from a terminal tab with `npx vite preview --outDir dist-review --port 4173 --host 127.0.0.1 --strictPort`. First-person job: `http://localhost:4173/?level=varga&plan=1&to=plan`. Do not run browser tests while he plays: they share the GPU and make his game stutter.
+
+## What was built on 2026-11-14 (all committed, tests green at ed337a1)
+
+- Preparation screens with the always-visible Ueberblick (approved).
+- First-person job in `?level=varga`: street, delivery yard and six rooms (`levels/varga.ts`, `varga-interior.ts`), planning at the van, the director (`src/game/job/`: director, hud, loot, roles, sound, varga-stage), skill games (`src/game/mech/lock*`, `safe*`), the guard (`mech/guard*`), contract in `mech/skill.ts`. The planning machine stays the authority: dice rolls became tasks a player does; bot seats' tasks go to any human inside; loot is carried to the van; decisions are glass pop-ups.
+- Evening score across jobs, rejoin after a reload (guest and host), connection check in the menu.
+- **Network:** a real join over a mobile network failed without a relay. There is now a coturn relay on Mert's own server (address and credentials in `public/net.json`, public by necessity; config in `/etc/turnserver.conf` there; stop it with `systemctl disable --now coturn`). A join from a phone on mobile data worked afterwards. Voice between real homes is still unconfirmed. NordVPN on Mert's Mac must be off when he hosts.
+- **Tests:** they run in Playwright's headless shell (`npx playwright-core install chromium-headless-shell` once). All of them at once: see the list in CLAUDE.md plus `job`, `varga-job`, `roles`, `job-sound`, `rejoin`, `net-diag`, `guard`, `lock`, `safe` and their `-logic` twins.
+- **Deploy:** build from a clean worktree of HEAD, never from the working tree while agents edit; push `dist` to `gh-pages` with `git -c credential.helper='!gh auth git-credential' push -f`. `gh` is logged in on this Mac.
+
+## Known problems
+
+- Flicker and stutter are reduced, not gone (Mert still sees some). Coplanar faces were fixed; a real hitch was never reproduced in the headless browser. On weaker laptops tell the friends to set graphics to "Mittel".
+- The run still has two guards in spirit: the visible one, and the old text encounter pop-up that is not tied to him. Camera, alarm panel and the getaway are still dice in the background.
+- Interior is dark, loot bags are plain boxes, other players are still the old block figures, all sound levels are untested by ear.
+- Rejoin is tested for the planning round, not for the first-person run.
+
+## How to work from here (Mert's rules, and what this session learned)
+
+- He is under time pressure and pays for every turn: keep the main session small. Start from this file and `docs/MISSION.md`, not from the old conversation. The lead decides and reviews; agents (Sonnet/Opus) build and test in parallel with exclusive file ownership; ask them for short reports and look at screenshots only when a decision depends on it.
+- Show him little and early: a line, a sketch, one screen. He reacts in one sentence; build from that. Big parallel builds before his verdict cost a lot and missed twice today.
+- Stop agents that keep re-sending their final report (TaskStop).
 
 ## What the game is now
 

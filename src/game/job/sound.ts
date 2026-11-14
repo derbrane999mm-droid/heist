@@ -148,11 +148,11 @@ export function createJobSound(deps: LevelDeps, opts: JobSoundOpts = {}): JobSou
     };
 
     // OUTSIDE: city hum (brown noise, low), a thin band of wind that swells slowly
-    src(brown).connect(lp(150)).connect(gain(0.11)).connect(gOut);
-    const wind = gain(0.5);
+    src(brown).connect(lp(150)).connect(gain(0.06)).connect(gOut);
+    const wind = gain(0.035); // was 0.5: far too loud as a constant hiss
     src(white).connect(bp(520, 0.6)).connect(wind).connect(gOut);
     const windLfo = osc('sine', 0.07);
-    windLfo.connect(gain(0.42)).connect(wind.gain);
+    windLfo.connect(gain(0.025)).connect(wind.gain);
     // a very low mains-like tone far away
     osc('sine', 50).connect(gain(0.012)).connect(gOut);
 
@@ -426,7 +426,7 @@ export function createJobSound(deps: LevelDeps, opts: JobSoundOpts = {}): JobSou
     const c = g.c;
     const t = c.currentTime;
     const on = !!session;
-    g.gOut.gain.setTargetAtTime(on && !insideNow ? 1 : 0.0001, t, 0.7);
+    g.gOut.gain.setTargetAtTime(on && !insideNow ? 0.5 : 0.0001, t, 0.7);
     g.gIn.gain.setTargetAtTime(on && insideNow ? 1 : 0.0001, t, 0.7);
     g.amb.gain.setTargetAtTime(on ? (ducked ? DUCK : 1) * (breath ? 0.15 : 1) : 0.0001, t, ducked || breath ? 0.15 : 0.6);
     if (g.alarmGain && g.alarmLp) {
