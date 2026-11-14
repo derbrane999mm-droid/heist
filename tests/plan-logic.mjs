@@ -159,6 +159,7 @@ function leaks(m, pubJson, pub) {
   // before the job: only what the crew knows
   if (!pub.run) {
     for (const k of m.S.job.factOrder) if (!m.S.known[k] && pubJson.includes(`"fact.${k}.`)) out.push('unknown fact ' + k);
+    if (!m.S.known.police && pubJson.includes('"ov.police.')) out.push('unknown fact police (overview)');
     for (const r of R) { const tip = m.S.tips[r]; if (tip && !m.S.known[tip.k] && pubJson.includes(`"fact.${tip.k}.`)) out.push('tip in public view'); }
   }
   if (pub.known) for (const k of Object.keys(pub.known)) if (!m.S.known[k]) out.push('known has extra ' + k);
@@ -354,6 +355,121 @@ check('every text key from the step machine exists in the German table', missing
   check('shop cover: safe', cv({ safe: 'mech' }, [], 'safe') === 'none' && cv({}, ['bohrer'], 'safe') === 'yes');
   check('shop cover: alternatives (alt) and the cases that stay no', cv({ alarm: 'tuer' }, ['seil'], 'alarm') === 'alt' && cv({ alarm: 'bewegung' }, ['seil'], 'alarm') === 'no' && cv({ guard: 'hund' }, [], 'guard') === 'alt' && cv({ guard: 'monitor', blind: 'liefer' }, [], 'guard') === 'alt' && cv({ guard: 'monitor', blind: 'dach' }, ['seil'], 'guard') === 'alt' && cv({ guard: 'monitor', blind: 'dach' }, [], 'guard') === 'no' && cv({ guard: 'monitor', blind: 'keiner' }, ['seil'], 'guard') === 'no' && cv({ guard: 'monitor' }, [], 'guard') === 'no');
   check('shop cover: guard and way', cv({ guard: 'rundgang' }, [], 'guard') === 'none' && cv({ guard: 'monitor' }, ['schleife'], 'guard') === 'yes' && cv({ police: 'kurz' }, [], 'way') === null);
+}
+
+// ---------------------------------------------------------------------------
+// the Überblick: one row per obstacle plus the time bar, read from what the crew knows
+// ---------------------------------------------------------------------------
+{
+  const STATES = new Set(['ok', 'alt', 'warn', 'open', 'unknown', 'off']);
+  const TSTATES = new Set(['ok', 'warn', 'open', 'unknown']);
+  const FK = ['alarm', 'guard', 'safe', 'blind', 'police'];
+  const opts = (k) => [null, ...E.VARGA.facts[k].flatMap((v) => [{ v, rumour: false }, { v, rumour: true }])];
+  const allOpts = FK.map(opts);
+  const TOOLSETS = [[], ['magnet'], ['schaum', 'bohrer'], ['stoer', 'decoder', 'leckerli'], ['seil', 'schleife'], ['bohrer', 'decoder', 'scanner', 'schleife', 'leckerli', 'magnet'], ['seil', 'scanner']];
+  const PLANS = [
+    null,
+    { entrance: 'liefer', posts: { brain: 'inside', gambler: 'lookout', hands: 'driver', bait: 'inside' }, targets: ['tresor', 'vitrinen'], panel: true },
+    { entrance: 'dach', posts: { brain: 'driver', gambler: 'inside', hands: 'inside', bait: 'inside' }, targets: ['vitrinen'], panel: false },
+    { entrance: 'vorder', posts: { brain: 'inside', gambler: 'inside', hands: 'inside', bait: 'driver' }, targets: ['lager', 'tresor'], panel: false },
+  ];
+  let combos = 0, bad = 0, badTime = 0, badWhat = 0, badPartial = 0, badBy = 0;
+  const keys = new Set(), missing = new Set();
+  const badEx = [];
+  const idx = FK.map(() => 0);
+  for (;;) {
+    const S = E.newGame({ factSeed: 7 });
+    S.known = {};
+    FK.forEach((k, i) => { const o = allOpts[i][idx[i]]; if (o) S.known[k] = { v: o.v, rumour: o.rumour, wrong: false, src: 't' }; });
+    for (const tools of TOOLSETS)
+      for (const pl of PLANS) {
+        if (pl) S.plan = JSON.parse(JSON.stringify(pl));
+        const o = E.overview(S, tools, !!pl);
+        combos++;
+        if (o.rows.length !== 4 || o.rows.map((r) => r.id).join() !== 'alarm,guard,safe,police' || o.rows.some((r) => !STATES.has(r.state))) { bad++; if (badEx.length < 3) badEx.push(JSON.stringify(o.rows.map((r) => r.state))); }
+        if (o.rows.some((r) => !!r.what !== !!S.known[r.id] || r.rumour !== !!S.known[r.id]?.rumour)) badWhat++;
+        if (o.rows.some((r) => r.id !== 'safe' && r.state === 'off')) bad++;
+        const t = o.time;
+        const wantT = t.partial || t.window === null ? 'unknown' : t.hi > t.window ? 'open' : t.hi > t.window - 2 ? 'warn' : 'ok';
+        if (!TSTATES.has(t.state) || t.state !== wantT || t.lo > t.hi || (t.window === null) !== !S.known.guard) badTime++;
+        // partial: only with the vault as a target, never with the drill, and the bar is then grey
+        const hasTresor = (S.plan.targets || []).includes('tresor');
+        if (typeof t.partial !== 'boolean' || (t.partial && (!hasTresor || tools.includes('bohrer') || t.state !== 'unknown'))) badPartial++;
+        if (!hasTresor && t.partial) badPartial++;
+        if (o.rows.some((r) => r.id !== 'police' && r.state === 'open' && !r.by)) badBy++;
+        for (const k of keysIn(o)) if (!keys.has(k)) { keys.add(k); if (!hasText(k)) missing.add(k); }
+      }
+    let j = 0;
+    while (j < FK.length && ++idx[j] === allOpts[j].length) idx[j++] = 0;
+    if (j === FK.length) break;
+  }
+  check('overview: valid row ids and states for every known/rumour/unknown x tools x plan combination', bad === 0 && combos > 50000, `${combos} combinations, ${bad} bad ${badEx.join(' ')}`);
+  check('overview: `what` and `rumour` follow exactly what the crew knows', badWhat === 0, `${badWhat} bad`);
+  check('overview: time state follows the thresholds; window null exactly while the guard is unknown', badTime === 0, `${badTime} bad`);
+  check('overview: time.partial is a boolean, only with the vault as target and no drill, and the bar is then unknown', badPartial === 0, `${badPartial} bad`);
+  check('overview: every open alarm/guard/safe row says what is missing (`by`)', badBy === 0, `${badBy} bad`);
+  check('overview: every text key it can return exists', missing.size === 0 && keys.size > 25, `${keys.size} keys; missing: ${[...missing].join(', ')}`);
+
+  // spot checks
+  const mk = (known = {}, plan = null) => {
+    const S = E.newGame({ factSeed: 7 });
+    S.known = Object.fromEntries(Object.entries(known).map(([k, v]) => [k, { v, rumour: false, wrong: false, src: 't' }]));
+    if (plan) S.plan = { entrance: 'liefer', posts: { brain: 'inside', gambler: 'lookout', hands: 'inside', bait: 'driver' }, targets: ['tresor'], panel: false, ...plan, posts: { brain: 'inside', gambler: 'lookout', hands: 'inside', bait: 'driver', ...(plan.posts || {}) } };
+    return S;
+  };
+  const ov = (known, tools, plan) => E.overview(mk(known, plan), tools, !!plan);
+  const row = (o, id) => o.rows.find((r) => r.id === id);
+  const st = (known, tools, plan, id) => row(ov(known, tools, plan), id).state;
+  const by = (known, tools, plan, id) => row(ov(known, tools, plan), id).by?.k ?? null;
+  const none = ov({}, [], null);
+  check('overview: nothing known -> all four rows unknown, no window', none.rows.every((r) => r.state === 'unknown' && r.what === null) && none.time.window === null && none.time.state === 'unknown');
+  check('overview alarm: tool fits -> ok; wrong tool -> open; panel -> alt', st({ alarm: 'still' }, ['stoer'], null, 'alarm') === 'ok' && st({ alarm: 'still' }, ['magnet'], null, 'alarm') === 'open' && st({ alarm: 'bewegung' }, [], { panel: true }, 'alarm') === 'alt' && by({}, [], { panel: true }, 'alarm') === 'ov.by.panel');
+  check('overview alarm: magnet without the Hände inside -> warn; Störsender needs no hands', st({ alarm: 'tuer' }, ['magnet'], { posts: { hands: 'driver' } }, 'alarm') === 'warn' && by({ alarm: 'tuer' }, ['magnet'], { posts: { hands: 'driver' } }, 'alarm') === 'ov.by.noHands' && st({ alarm: 'still' }, ['stoer'], { posts: { hands: 'driver' } }, 'alarm') === 'ok' && st({ alarm: 'tuer' }, ['magnet'], null, 'alarm') === 'ok');
+  check('overview alarm: door contacts and the roof hatch', st({ alarm: 'tuer' }, ['seil'], null, 'alarm') === 'alt' && by({ alarm: 'tuer' }, ['seil'], null, 'alarm') === 'ov.by.roofOpt' && st({ alarm: 'tuer' }, ['seil'], { entrance: 'dach' }, 'alarm') === 'alt' && by({ alarm: 'tuer' }, ['seil'], { entrance: 'dach' }, 'alarm') === 'ov.by.roof' && st({ alarm: 'tuer' }, ['seil'], { entrance: 'vorder' }, 'alarm') === 'open' && st({ alarm: 'bewegung' }, ['seil'], null, 'alarm') === 'open');
+  check('overview guard: round -> ok; dog by entrance; dog treats -> ok', st({ guard: 'rundgang' }, [], null, 'guard') === 'ok' && st({ guard: 'hund' }, [], null, 'guard') === 'alt' && st({ guard: 'hund' }, [], { entrance: 'liefer' }, 'guard') === 'open' && st({ guard: 'hund' }, [], { entrance: 'vorder' }, 'guard') === 'alt' && st({ guard: 'hund' }, ['leckerli'], { entrance: 'liefer' }, 'guard') === 'ok');
+  check('overview guard: monitor room, loop and blind spot', st({ guard: 'monitor' }, [], null, 'guard') === 'open' && st({ guard: 'monitor' }, ['schleife'], null, 'guard') === 'ok' && st({ guard: 'monitor' }, ['schleife'], { posts: { gambler: 'inside' } }, 'guard') === 'warn' && st({ guard: 'monitor', blind: 'liefer' }, [], null, 'guard') === 'alt' && st({ guard: 'monitor', blind: 'dach' }, [], null, 'guard') === 'open' && st({ guard: 'monitor', blind: 'dach' }, ['seil'], null, 'guard') === 'alt' && st({ guard: 'monitor', blind: 'dach' }, ['seil'], { entrance: 'dach' }, 'guard') === 'alt' && st({ guard: 'monitor', blind: 'dach' }, ['seil'], { entrance: 'liefer' }, 'guard') === 'open');
+  check('overview safe: drill, decoder, by hand, time lock, no target', st({}, ['bohrer'], null, 'safe') === 'ok' && st({ safe: 'zeit' }, [], null, 'safe') === 'open' && by({ safe: 'zeit' }, [], null, 'safe') === 'ov.by.need' && st({ safe: 'zeit' }, ['decoder'], null, 'safe') === 'open' && st({ safe: 'elek' }, ['decoder'], null, 'safe') === 'ok' && st({ safe: 'elek' }, ['decoder'], { posts: { brain: 'lookout' } }, 'safe') === 'warn' && st({ safe: 'mech' }, [], null, 'safe') === 'ok' && st({ safe: 'mech' }, [], { posts: { brain: 'lookout' } }, 'safe') === 'open' && st({ safe: 'zeit' }, [], { targets: ['vitrinen'] }, 'safe') === 'off' && st({ safe: 'zeit' }, ['bohrer'], { posts: { hands: 'driver' } }, 'safe') === 'warn');
+  check('overview open rows name the missing tool', (() => { const n = (kn, tl, pl, id) => { const b = row(ov(kn, tl, pl), id).by; return b?.k === 'ov.by.need' ? b.p.t.k : null; }; return n({ alarm: 'tuer' }, [], null, 'alarm') === 'tool.magnet.name' && n({ alarm: 'bewegung' }, [], null, 'alarm') === 'tool.schaum.name' && n({ alarm: 'still' }, [], null, 'alarm') === 'tool.stoer.name' && n({ guard: 'monitor' }, [], null, 'guard') === 'tool.schleife.name' && n({ guard: 'hund' }, [], { entrance: 'liefer' }, 'guard') === 'tool.leckerli.name' && n({ safe: 'zeit' }, [], null, 'safe') === 'tool.bohrer.name' && by({ safe: 'elek' }, [], null, 'safe') === 'ov.by.needSafeTool' && by({ safe: 'mech' }, [], { posts: { brain: 'lookout' } }, 'safe') === 'ov.by.noBrainHand'; })());
+  check('overview police: known -> ok, scanner noted', st({ police: 'kurz' }, [], null, 'police') === 'ok' && by({ police: 'kurz' }, ['scanner'], null, 'police') === 'ov.by.scanner' && st({}, ['scanner'], null, 'police') === 'unknown');
+  {
+    // partial: the vault is a target but its time is missing from the estimate
+    const tr = { targets: ['tresor'] };
+    const pt = (kn, tl, pl) => ov(kn, tl, pl).time;
+    check('overview time.partial: true when the vault cannot be opened or is unknown', pt({ guard: 'rundgang', safe: 'zeit' }, [], tr).partial && pt({ guard: 'rundgang' }, [], tr).partial && pt({ guard: 'rundgang', safe: 'elek' }, ['decoder'], { ...tr, posts: { brain: 'lookout' } }).partial && pt({ guard: 'rundgang', safe: 'zeit' }, [], tr).state === 'unknown' && pt({ guard: 'rundgang', safe: 'zeit' }, [], null).partial);
+    check('overview time.partial: false with the drill, a working quiet way, or no vault target', !pt({ guard: 'rundgang', safe: 'zeit' }, ['bohrer'], tr).partial && !pt({ guard: 'rundgang' }, ['bohrer'], tr).partial && !pt({ guard: 'rundgang', safe: 'mech' }, [], tr).partial && !pt({ guard: 'rundgang', safe: 'elek' }, ['decoder'], tr).partial && !pt({ guard: 'rundgang', safe: 'zeit' }, [], { targets: ['vitrinen'] }).partial && pt({ guard: 'rundgang', safe: 'zeit' }, ['bohrer'], tr).state !== 'unknown');
+    check('overview text keys: partial, need, new shop lead', ['ov.time.partialT', 'ov.time.partial', 'ov.by.need', 'sh.lead'].every(hasText) && !hasText('ov.by.needDrill'));
+  }
+  {
+    // time: judged with the given tools, against the window of the known guard
+    const S = mk({ guard: 'rundgang', safe: 'zeit' }, { targets: ['tresor'] });
+    const w = E.windowFor(S, 'rundgang');
+    const a = E.overview(S, [], true).time, b = E.overview(S, ['bohrer'], true).time;
+    check('overview time: estimated with the given tools, window from the known guard', a.window === w && b.hi === a.hi + 8 && E.estimateTime({ ...S, tools: ['bohrer'] })[1] === b.hi, `${JSON.stringify(a)} ${JSON.stringify(b)}`);
+    const S2 = mk({ guard: 'rundgang' }, { targets: ['tresor', 'vitrinen', 'lager'] });
+    S2.stake = 'allin';
+    S2.attention = 4;
+    const c = E.overview(S2, ['bohrer'], true).time;
+    check('overview time: a plan longer than the window -> open', c.window !== null && c.hi > c.window && c.state === 'open', JSON.stringify(c));
+  }
+  // pub(): the overview is only there while the crew prepares, and follows the shared basket
+  {
+    const m = new E.PlanMachine({ seed: 3, seats: [{ role: 'brain', pid: 'p1', name: 'A' }], times: { ...FAST, bot: 1e9 } }, 0);
+    let now = 0;
+    const steps = [];
+    for (let i = 0; i < 400 && m.phase !== 'shop'; i++) {
+      now += 100;
+      if (m.phase === 'scout') { for (const id of ['parkhaus', 'hausmeister', 'lagerist']) m.act('brain', { t: 'scout', id }, now); }
+      if (m.phase === 'offer') { const o = m.priv('brain').offer; if (o) m.act('brain', { t: 'offer', answer: 'decline' }, now); }
+      if (['stake', 'brief', 'scout', 'facts'].includes(m.phase)) m.act('brain', { t: 'confirm' }, now);
+      m.tick(now);
+      steps.push(m.phase + ':' + !!m.pub().overview);
+    }
+    const p0 = m.pub();
+    m.act('brain', { t: 'tool', id: 'bohrer' }, now);
+    const p1 = m.pub();
+    check('pub(): overview present in every preparation phase reached', m.phase === 'shop' && steps.every((s) => s.endsWith(':true')), steps.filter((s, i) => steps.indexOf(s) === i).join(' '));
+    check('pub(): the overview follows the shared basket at once (cache invalidated)', p1 !== p0 && row(p1.overview, 'safe').state === 'ok' && row(p1.overview, 'safe').by.p.t.k === 'tool.bohrer.name', JSON.stringify(row(p1.overview, 'safe')));
+  }
 }
 
 console.log(`\n${passed} passed, ${failed} failed`);

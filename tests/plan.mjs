@@ -60,8 +60,15 @@ try {
     return all.every((x) => x === all[0]) && JSON.parse(all[0]).length === 3 ? JSON.parse(all[0]) : false;
   });
   check('scouting board: proposals from three players, live on all four pages', !!board, JSON.stringify(board));
-  const selCards = await Promise.all(pages.map((p) => p.evaluate(() => document.querySelectorAll('.plan-ov .card.sel [data-scout]').length)));
+  // the state arrives first, the page draws it a frame or two later
+  const countSel = () => Promise.all(pages.map((p) => p.evaluate(() => document.querySelectorAll('.plan-ov .sct-row.sel[data-scout]').length)));
+  await until(async () => (await countSel()).every((n) => n === 3), 5000, 100);
+  const selCards = await countSel();
   check('every page highlights the same three cards', selCards.every((n) => n === 3), selCards.join(','));
+  // the Überblick marks the rows the three picked scouts will clear (alarm, guard) and leaves the others unknown
+  const soon = await by.bait.evaluate(() => Object.fromEntries([...document.querySelectorAll('.plan-ov .ov-row[data-fk]')].map((r) => [r.dataset.fk, r.querySelector('.ov-pill')?.textContent])));
+  check('scouting: Überblick shows "wird geklärt" for the rows a picked scout reveals', soon.alarm === 'wird geklärt' && soon.guard === 'wird geklärt' && soon.safe === 'unbekannt' && soon.police === 'unbekannt', JSON.stringify(soon));
+  check('scouting: six compact rows, footer and confirm button outside the scrolling body', await by.brain.evaluate(() => { return document.querySelectorAll('.plan-ov .sct-row').length === 6 && !!document.querySelector('.plan-ov .sct-foot [data-act="confirm"]') && !document.querySelector('.plan-ov .card'); }));
   await act(by.hands, { t: 'confirm' });
   await sleep(600);
   check('only the Wortführer confirms the scouting', (await pub(host)).phase === 'scout');
@@ -108,7 +115,10 @@ try {
 
   // ---- shopping
   const p1 = await pub(host);
+  // the full tool list is behind one button (view-local: opens on this page only)
+  await click(by.hands, '[data-local="shop-all"]');
   await click(by.hands, '[data-tool="bohrer"]');
+  await click(by.bait, '[data-local="shop-all"]');
   await click(by.bait, '[data-tool="scanner"]');
   await until(async () => (await pub(by.brain)).board.tools.length === 2);
   await click(by.brain, '[data-act="confirm"]');
@@ -133,6 +143,7 @@ try {
   await click(by.gambler, '[data-tgt="vitrinen"]'); // toggle off
   await click(by.gambler, '[data-tgt="vitrinen"]'); // and on again
   await until(async () => (await pub(host)).plan.targets.length === 2);
+  check('plan: footer holds the confirm button, no summary box', await by.brain.evaluate(() => !!document.querySelector('.plan-ov .pln-foot [data-act="confirm"]') && !document.querySelector('.plan-ov .summary') && document.querySelectorAll('.plan-ov [data-ent]').length === 3));
   if ((await pub(host)).summary.errors.length) console.log('plan errors', JSON.stringify((await pub(host)).summary.errors));
   await click(by.brain, '[data-act="confirm"]');
   await phaseIs(host, 'run');

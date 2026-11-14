@@ -40,12 +40,16 @@ export class PlanView {
   /** what the mouse is over in the shop: facts to light up on the floor plan, tool to explain */
   private hoverHl = '';
   private hoverTool = '';
+  /** scouting and plan: the row or entrance under the mouse, whose details show in the footer line */
+  private hoverInfo = '';
   private shownJob: unknown = null;
   private open = false;
   private dismissed = -1;
   private frozeIt = false;
   private talk = false;
   private offerSel: { t: string | null; p: string | null } = { t: null, p: null };
+  /** shop: the full tool list is open (this page only, not replicated; closed on every phase change) */
+  private shopAll = false;
   private accSel: string | null = null;
   private openDetails = new Set<string>();
   private lastBeats = 0;
@@ -155,7 +159,7 @@ export class PlanView {
     this.setOpen(!!want);
     if (!want) return;
     if (this.priv && this.priv.job !== p.job) this.priv = null;
-    const key = [p.job, p.v, p.phase, JSON.stringify(this.priv), this.offerSel.t, this.offerSel.p, this.accSel, this.lang()].join('|');
+    const key = [p.job, p.v, p.phase, JSON.stringify(this.priv), this.offerSel.t, this.offerSel.p, this.accSel, this.shopAll, this.lang()].join('|');
     if (key !== this.key) {
       const newBeats = (p.run?.beats?.length ?? 0) > this.lastBeats;
       // tracked apart from the key: a click clears the key to force a redraw, and that must not count as a new phase
@@ -165,6 +169,8 @@ export class PlanView {
       this.shownJob = p.job;
       if (phaseChanged) {
         this.offerSel = { t: null, p: null };
+        this.shopAll = false;
+        this.hoverHl = this.hoverTool = this.hoverInfo = '';
         if (p.phase !== 'accuse') this.accSel = null;
       }
       this.key = key;
@@ -226,7 +232,7 @@ export class PlanView {
 
   private render(p: any, phaseChanged: boolean, newBeats: boolean) {
     // the part of the panel that scrolls (the shop keeps its footer outside of it)
-    const scroller = () => (this.el.querySelector('.pl-panel .shp-body') || this.el.querySelector('.pl-panel')) as HTMLElement | null;
+    const scroller = () => (this.el.querySelector('.pl-panel .shp-body, .pl-panel .sct-body, .pl-panel .pln-body') || this.el.querySelector('.pl-panel')) as HTMLElement | null;
     const panelOld = scroller();
     const scroll = panelOld && !phaseChanged ? panelOld.scrollTop : 0;
     const me = this.myRole(p);
@@ -238,7 +244,8 @@ export class PlanView {
     }
     const head = this.header(p, me);
     const panel = this.panel(p, me);
-    this.el.innerHTML = `<div class="pl-app pl-ph-${esc(p.phase)}">${head}<main><section class="pl-left"><div class="cap"><span>${this.K('ui.floor')}</span><span>${this.K(p.phase === 'debrief' ? 'ui.floorKeyEnd' : p.phase === 'shop' ? 'ui.floorKeyShop' : 'ui.floorKey')}</span></div><div class="pl-floor">${this.floor(p)}</div>${this.crew(p, me)}</section><section class="pl-panel" aria-live="polite">${panel}</section></main></div>`;
+    const ov = this.overview(p);
+    this.el.innerHTML = `<div class="pl-app pl-ph-${esc(p.phase)}">${head}<main><section class="pl-left${ov ? ' ov-on' : ''}">${ov}<div class="cap"><span>${this.K('ui.floor')}</span><span>${this.K(p.phase === 'debrief' ? 'ui.floorKeyEnd' : p.phase === 'shop' ? 'ui.floorKeyShop' : 'ui.floorKey')}</span></div><div class="pl-floor">${this.floor(p)}</div>${this.crew(p, me)}</section><section class="pl-panel" aria-live="polite">${panel}</section></main></div>`;
     const pn = scroller()!;
     if (p.phase === 'run' || (p.phase === 'offer' && p.mid)) {
       const tgt = (pn.querySelector('.decision') || pn.querySelector('.private') || pn.querySelector('.beat.cur')) as HTMLElement | null;
@@ -246,7 +253,7 @@ export class PlanView {
       else pn.scrollTop = scroll;
     } else pn.scrollTop = scroll;
     this.lastSec = -1;
-    if (p.phase !== 'shop') this.hoverHl = this.hoverTool = '';
+    if (p.phase !== 'shop' && p.phase !== 'scout' && p.phase !== 'plan') this.hoverHl = this.hoverTool = this.hoverInfo = '';
     this.applyHover();
   }
 
@@ -336,12 +343,14 @@ export class PlanView {
 
   private ph_scout(p: any, me: Role | null) {
     const sel: string[] = p.board.scout;
-    let h = `<div class="kicker">${this.K('ph.scout.kicker')}</div><h2>${this.K('ph.scout.title')}</h2><p class="lead">${this.K('ph.scout.lead')}</p><div class="cards">`;
+    const idle = `${this.K('ph.hover')} ${this.K('ui.locked')}`;
+    let h = `<div class="sct-body"><div class="kicker">${this.K('ph.scout.kicker')}</div><h2>${this.K('ph.scout.title')}</h2><p class="sct-lead">${this.K('ph.scout.lead2')}</p><div class="sct-list">`;
     for (const a of VARGA.scouts) {
       const on = sel.includes(a.id),
         dis = !on && sel.length >= VARGA.scoutCount;
-      const tags = [a.money ? eur(a.money) : '', a.attention ? this.K('tag.att', { n: a.attention }) : '', a.rumour ? this.K('tag.rumour') : ''].filter(Boolean);
-      h += this.card({ sel: on, dis, ro: !me, data: `data-scout="${a.id}"`, title: this.K('sc.' + a.id + '.name'), text: this.K('ph.scout.reveals', { a: pt('fact.' + a.reveals[0]), b: pt('fact.' + a.reveals[1]) }), tags, tagcls: a.rumour ? 'acc' : '', details: this.K('sc.' + a.id + '.details'), dk: 'sc' + a.id });
+      const chips = [a.money ? `<span class="sct-chip">${eur(a.money)}</span>` : '', a.attention ? `<span class="sct-chip">${this.K('tag.att', { n: a.attention })}</span>` : '', a.rumour ? `<span class="sct-chip acc">${this.K('tag.rumour')}</span>` : ''].join('');
+      const clears = this.K('ph.scout.clears', { a: pt('sct.f.' + a.reveals[0], undefined, this.lang()), b: pt('sct.f.' + a.reveals[1], undefined, this.lang()) });
+      h += `<button type="button" class="sct-row${on ? ' sel' : ''}${dis ? ' dis' : ''}${me ? '' : ' ro'}" data-scout="${a.id}" data-hl="${a.reveals.join(' ')}" aria-pressed="${on}"${dis || !me ? ' aria-disabled="true"' : ''}><span class="sct-box">${on ? '✓' : ''}</span><span class="sct-nm"><b>${this.K('sc.' + a.id + '.name')}</b><span>${clears}</span></span><span class="sct-chips">${chips}</span></button>`;
     }
     let money = 0,
       attn = 0;
@@ -351,10 +360,10 @@ export class PlanView {
       attn += a.attention;
     }
     const after = Math.min(5, p.attention + attn);
-    h += `</div><p>${this.K('ph.scout.count', { n: sel.length, m: eur(money), a: after })}${after >= 3 ? ` <span class="tag bad">${this.K('ph.scout.moreGuard')}</span>` : ''}</p>`;
-    h += `<p class="pl-muted small">${this.K('ui.locked')}</p>`;
-    h += me === 'brain' ? `<div class="btnrow"><button class="pl-btn pri" data-act="confirm"${sel.length === 3 ? '' : ' disabled'}>${this.K('ph.scout.go')}</button></div>` : this.waitBtn(p, 'brain');
-    return h;
+    h += `</div><p class="sct-legend">${this.K('sct.legend')}</p></div>`;
+    h += `<div class="sct-foot"><p class="sct-info" data-default="${idle}">${idle}</p><div class="sct-bar"><span class="sct-count">${this.K('ph.scout.count', { n: sel.length, m: eur(money), a: after })}${after >= 3 ? ` <span class="tag bad">${this.K('ph.scout.moreGuard')}</span>` : ''}</span>`;
+    h += me === 'brain' ? `<button class="pl-btn pri" data-act="confirm"${sel.length === 3 ? '' : ' disabled'}>${this.K('ph.scout.go')}</button>` : this.waitBtn(p, 'brain');
+    return h + '</div></div>';
   }
 
   private ph_facts(p: any, me: Role | null) {
@@ -396,88 +405,152 @@ export class PlanView {
   }
 
   /**
-   * Shopping. Tools are grouped by the question they answer; every tile says in plain words what the
-   * tool does, whether it fits what the crew knows, and what it needs. All of it fits without scrolling.
+   * The "Überblick": always visible while the crew prepares. Four obstacles with what the crew knows
+   * and a status, then one time bar. Computed by the host (pub().overview) from what the crew knows.
+   */
+  private overview(p: any) {
+    const o = p.overview;
+    if (!o) return '';
+    // scouting: a fact one of the picked scouts will reveal is "being cleared", not just unknown
+    const soon = new Set<string>();
+    if (p.phase === 'scout') for (const id of p.board?.scout ?? []) for (const k of VARGA.scouts.find((x) => x.id === id)?.reveals ?? []) soon.add(k);
+    const pill = (id: string, st: string) => {
+      const lbl = id === 'police' && st === 'ok' ? 'known' : st === 'unknown' && soon.has(id) ? 'soon' : st;
+      return `<span class="ov-pill ov-${lbl}">${this.K('ov.st.' + lbl)}</span>`;
+    };
+    let h = `<div class="ov-card"><div class="ov-title">${this.K('ov.title')}</div>`;
+    for (const r of o.rows) {
+      let sub = r.what ? `<span class="ov-v">${this.T(p, r.what)}</span>${r.rumour ? `<span class="ov-r">, ${this.K('ov.rumour')}</span>` : ''}` : r.id === 'police' ? this.K('ov.police.sub') : `<i class="ov-q">${this.K('ov.unknown')}</i>`;
+      if (r.by) sub += ` · ${this.T(p, r.by)}`;
+      h += `<div class="ov-row" data-fk="${r.id}"><div class="ov-txt"><b>${this.K('ov.row.' + r.id)}</b><span class="ov-sub">${sub}</span></div>${pill(r.id, r.state)}</div>`;
+    }
+    const t = o.time;
+    const span = t.lo === t.hi ? String(t.hi) : `${t.lo}–${t.hi}`;
+    // without a known window the bar is drawn against the longest window the job can have
+    const scale = t.window ?? Math.max(...Object.values(VARGA.window));
+    const pc = (n: number) => Math.max(0, Math.min(100, (n / Math.max(1, scale)) * 100));
+    // before the crew knows the guard and the safe there is nothing honest to show: no numbers, an empty bar
+    const st = (id: string) => o.rows.find((r: any) => r.id === id)?.state;
+    const early = st('guard') === 'unknown' && st('safe') === 'unknown';
+    const lo = early ? 0 : pc(t.lo),
+      hi = early ? 0 : pc(t.hi);
+    const right = early ? this.K('ov.unknown') : t.partial ? this.K('ov.time.partialT', { t: span }) : t.window !== null ? this.K('ov.time.of', { t: span, w: t.window }) : this.K('ov.time.noWin', { t: span });
+    h += `<div class="ov-row ov-time ov-t-${early ? 'unknown' : t.state}"><div class="ov-th"><b>${this.K('ov.row.time')}</b><span>${right}</span></div>`;
+    h += `<div class="ov-bar"><i class="ov-fill" style="width:${lo.toFixed(1)}%"></i>${hi > lo ? `<i class="ov-span" style="left:${lo.toFixed(1)}%;width:${(hi - lo).toFixed(1)}%"></i>` : ''}</div>`;
+    h += `<div class="ov-cap">${this.K(early ? 'ov.time.early' : t.partial ? 'ov.time.partial' : 'ov.time.' + t.state)}</div></div>`;
+    return h + '</div>';
+  }
+
+  /** What a shop element is about, for the hover highlight (floor plan badges and Überblick rows). */
+  private toolHl(p: any, id: string) {
+    const adv = toolAdvice(p.known, id);
+    return [...(adv.fact ? [adv.fact] : []), ...(id === 'seil' ? ['dach'] : []), ...(id === 'schleife' ? ['blind'] : []), ...(id === 'scanner' ? ['police'] : [])].join(' ');
+  }
+
+  /**
+   * Shopping, reduced: what is still missing against what the crew knows, the basket, and the
+   * full list behind one button. The Überblick on the left carries the state of every obstacle.
    */
   private ph_shop(p: any, me: Role | null) {
     const sel: string[] = p.board.tools;
     const tool = (id: string) => VARGA.tools.find((t) => t.id === id)!;
     const cost = sel.reduce((s, id) => s + tool(id).price, 0),
       left = p.budget - cost;
+    const tname = (id: string) => this.K('tool.' + id + '.name');
     let h = `<div class="shp-body"><div class="shp-head"><h2>${this.K('ph.shop.title')}</h2><p class="shp-lead">${this.K('sh.lead')}</p><div class="shp-left"><span>${this.K('sh.left')}</span><b>${eur(left)}</b></div></div>`;
     if (p.preTraces?.length) h += p.preTraces.map((t: Txt) => `<div class="ln trace">${this.T(p, t)}</div>`).join('');
     const tip = this.priv?.tip;
     if (tip) h += `<div class="private tip"><div class="privhead">${this.K('pv.head', { who: this.ctx(p).name(this.priv.role) })}</div><div class="kicker">${this.K('pv.tipKicker')}</div><h3>${this.K('fact.' + tip.k)}</h3><p class="lead">${this.K('pv.tipText', { v: pt('fact.' + tip.k + '.' + tip.v) })}</p></div>`;
-    const open: string[] = [],
-      unknown: string[] = [];
-    // two columns of groups: alarm + guard on the left, safe + way on the right
-    const cols = ['', ''];
-    SHOP_GROUPS.forEach((g, gi) => {
-      let h = '';
-      const cov = shopCover(p.known, sel, g.id);
-      const gname = this.K('sh.g.' + g.id);
-      // heading: what the crew knows about this question
-      const know = g.facts.map((k) => (g.facts.length === 1 && g.id !== 'way' ? `${this.K('sh.know')} ` : `${this.K('fact.' + k)}: `) + this.knownHtml(p, k)).join(' · ');
-      const covTag = cov ? `<span class="tag ${cov === 'yes' ? 'ok' : cov === 'no' ? 'bad' : cov === 'alt' ? 'acc' : ''}">${this.K('sh.cov.' + cov)}</span>` : '';
-      const main = g.facts[0];
-      if (cov === 'no') open.push(`${gname} (${this.K('fact.' + main + '.' + p.known[main].v)})`);
-      if (cov === 'unknown') unknown.push(gname);
-      let note = '';
-      const kv = (k: FactKey) => p.known[k]?.v ?? null;
-      if (g.id === 'alarm' && cov !== 'yes') note = this.K(kv('alarm') === 'tuer' ? 'sh.note.alarm.tuer' : 'sh.note.alarm');
-      if (g.id === 'safe' && cov === 'none') note = this.K('sh.note.safe.mech');
-      if (g.id === 'guard' && cov === 'none') note = this.K('sh.note.guard.rundgang');
-      if (g.id === 'guard' && kv('guard') === 'hund' && cov !== 'yes') note = this.K('sh.note.guard.hund');
-      if (g.id === 'guard' && kv('guard') === 'monitor' && cov !== 'yes' && (kv('blind') === 'liefer' || kv('blind') === 'dach')) note = this.K('sh.note.guard.blind.' + kv('blind'));
-      h += `<section class="shp-group" data-hl="${g.facts.join(' ')}"><div class="shp-gh${g.facts.length > 1 ? ' multi' : ''}"><h3>${gname}</h3><span class="shp-know">${know}</span>${covTag}</div>${note ? `<p class="shp-note">${note}</p>` : ''}<div class="shp-tiles">`;
-      for (const id of g.tools) {
-        const t = tool(id),
-          on = sel.includes(id),
-          dis = !on && t.price > left,
-          adv = toolAdvice(p.known, id);
-        const needs = [t.tags.includes('hands') ? this.K('sh.need.hands') : '', id === 'decoder' ? this.K('sh.need.brain') : '', t.tags.includes('post') ? this.K('sh.need.post') : '', t.tags.includes('loud') ? this.K('sh.loud') : '', t.tags.includes('quiet') ? this.K('sh.quiet') : ''].filter(Boolean);
-        const mark = adv.state === 'fit' ? '✓' : adv.state === 'miss' ? '✕' : adv.state === 'open' ? '?' : '•';
-        const hl = [...(adv.fact ? [adv.fact] : []), ...(id === 'seil' ? ['dach'] : []), ...(id === 'schleife' ? ['blind'] : []), ...(id === 'scanner' ? ['police'] : [])].join(' ');
-        // a tool the crew knows to be useless shrinks to one line (still buyable; a rumour keeps the full tile)
-        const slim = adv.state === 'miss' && !adv.rumour && !on;
-        h += `<button type="button" class="shp-tile ${adv.state}${adv.rumour ? ' rum' : ''}${slim ? ' slim' : ''}${on ? ' sel' : ''}${dis ? ' dis' : ''}${me ? '' : ' ro'}" data-tool="${id}" data-hl="${hl}" aria-pressed="${on}"${dis || !me ? ' aria-disabled="true"' : ''}>`;
-        const fit = `<span class="shp-fit"><i>${mark}</i>${this.T(p, adv.text)}</span>`;
-        h += `<span class="shp-th"><b>${this.K('tool.' + id + '.name')}</b>${slim ? fit : ''}<span class="px">${dis ? `<small>${this.K('sh.tooDear')}</small> ` : ''}${eur(t.price)}</span></span>`;
-        if (!slim) {
-          h += `<span class="shp-tx">${this.K('tool.' + id + '.text')}</span>${fit}`;
-          if (needs.length) h += `<span class="shp-need">${needs.join(' · ')}</span>`;
-        }
-        h += '</button>';
-      }
-      cols[gi % 2] += h + '</div></section>';
-    });
-    h += `<div class="shp-cols"><div class="shp-col">${cols[0]}</div><div class="shp-col">${cols[1]}</div></div>`;
-    // footer: the exact numbers of the tool under the mouse, what the basket leaves open, and the button
-    const idle = `${this.K('sh.hover')} ${this.K('ui.locked')}`;
-    h += `</div><div class="shp-foot"><p class="shp-info" data-default="${idle}">${idle}</p>`;
-    h += `<div class="shp-bar"><p class="shp-sum"><span>${sel.length ? this.K('sh.basket', { n: sel.length, m: eur(cost) }) : this.K('sh.basket0')}</span>`;
-    if (open.length) h += `<span class="bad">${this.K('sh.open')} ${open.join(' · ')}</span>`;
-    else if (!unknown.length) h += `<span class="ok">${this.K('sh.allCovered')}</span>`;
-    if (unknown.length) h += `<span class="q">${this.K('sh.unknownList')} ${unknown.join(' · ')}</span>`;
-    h += '</p>';
-    h += me === 'brain' ? `<button class="pl-btn pri" data-act="confirm">${this.K('ph.shop.go')}</button>` : this.waitBtn(p, 'brain');
-    return h + '</div></div>';
-  }
 
-  /** Shop only: light up on the floor plan what the tool under the mouse is about, and show its exact numbers. */
+    // 1. what is still missing: per open obstacle the tools that answer it
+    const rows: any[] = p.overview?.rows ?? [];
+    const st = (id: string) => rows.find((r) => r.id === id)?.state ?? 'unknown';
+    const want: string[] = [];
+    const guesses: string[] = [];
+    const add = (id: string) => {
+      if (!sel.includes(id) && !want.includes(id)) want.push(id);
+    };
+    for (const g of SHOP_GROUPS) {
+      if (g.id === 'way') continue;
+      const s = st(g.id);
+      if (s === 'open') {
+        for (const id of g.tools) if (toolAdvice(p.known, id).state === 'fit' && toolAdvice(p.known, id).fact === g.id) add(id);
+        // a camera blind spot at the roof: the rope makes that way possible
+        if (g.id === 'guard' && toolAdvice(p.known, 'seil').state === 'fit') add('seil');
+      } else if (s === 'unknown') {
+        if (g.id === 'safe') add('bohrer');
+        else guesses.push(this.K('sh.guess', { k: pt('ov.row.' + g.id, undefined, this.lang()) }));
+      }
+    }
+    const buyLine = (id: string) => {
+      const t = tool(id),
+        dis = t.price > left;
+      return `<div class="shp-nl" data-hl="${this.toolHl(p, id)}"><div class="shp-nt"><b>${tname(id)}</b><span>${this.K('tool.' + id + '.text')}</span></div><span class="px">${dis ? `<small>${this.K('sh.tooDear')}</small> ` : ''}${eur(t.price)}</span><button type="button" class="shp-buy${dis ? ' dis' : ''}" data-tool="${id}" aria-pressed="false"${dis || !me ? ' aria-disabled="true"' : ''}>${this.K('sh.buy')}</button></div>`;
+    };
+    h += `<section class="shp-sec"><h3>${this.K('sh.need')}</h3>`;
+    if (!want.length) h += `<p class="shp-none">${this.K('sh.needNone')}</p>`;
+    h += want.map(buyLine).join('');
+    h += guesses.map((g) => `<p class="shp-guess">${g}</p>`).join('');
+    h += '</section>';
+
+    // 2. the basket
+    h += `<section class="shp-sec"><h3>${this.K('sh.inBasket')}</h3><div class="shp-chips">`;
+    h += sel.length
+      ? sel.map((id) => `<button type="button" class="chip shp-chip" data-tool="${id}" data-hl="${this.toolHl(p, id)}" aria-pressed="true" aria-label="${this.K('sh.remove')}: ${tname(id)}"${me ? '' : ' aria-disabled="true"'}>✓ ${tname(id)} · ${eur(tool(id).price)}</button>`).join('')
+      : `<span class="pl-muted">${this.K('sh.basketEmpty')}</span>`;
+    h += '</div></section>';
+
+    // 3. everything, on request
+    h += `<button type="button" class="shp-more" data-local="shop-all" aria-expanded="${this.shopAll}">${this.shopAll ? this.K('sh.showLess') : this.K('sh.showAll', { n: VARGA.tools.length })}</button>`;
+    if (this.shopAll) {
+      const cols = ['', ''];
+      SHOP_GROUPS.forEach((g, gi) => {
+        const know = g.facts.map((k) => (g.facts.length === 1 && g.id !== 'way' ? `${this.K('sh.know')} ` : `${this.K('fact.' + k)}: `) + this.knownHtml(p, k)).join(' · ');
+        let c = `<section class="shp-group" data-hl="${g.facts.join(' ')}"><div class="shp-gh${g.facts.length > 1 ? ' multi' : ''}"><h3>${this.K('sh.g.' + g.id)}</h3><span class="shp-know">${know}</span></div><div class="shp-tiles">`;
+        for (const id of g.tools) {
+          const t = tool(id),
+            on = sel.includes(id),
+            dis = !on && t.price > left,
+            adv = toolAdvice(p.known, id);
+          const mark = adv.state === 'fit' ? '✓' : adv.state === 'miss' ? '✕' : adv.state === 'open' ? '?' : '•';
+          c += `<button type="button" class="shp-tile ${adv.state}${adv.rumour ? ' rum' : ''}${on ? ' sel' : ''}${dis ? ' dis' : ''}${me ? '' : ' ro'}" data-tool="${id}" data-hl="${this.toolHl(p, id)}" aria-pressed="${on}"${dis || !me ? ' aria-disabled="true"' : ''}>`;
+          c += `<span class="shp-th"><b>${tname(id)}</b><span class="px">${dis ? `<small>${this.K('sh.tooDear')}</small> ` : ''}${eur(t.price)}</span></span>`;
+          c += `<span class="shp-tx">${this.K('tool.' + id + '.text')}</span><span class="shp-fit"><i>${mark}</i>${this.T(p, adv.text)}</span></button>`;
+        }
+        cols[gi % 2] += c + '</div></section>';
+      });
+      h += `<div class="shp-cols"><div class="shp-col">${cols[0]}</div><div class="shp-col">${cols[1]}</div></div>`;
+    }
+
+    // footer: the button (and, with the full list open, the exact numbers of the tool under the mouse)
+    const idle = `${this.K('sh.hover')} ${this.K('ui.locked')}`;
+    h += `</div><div class="shp-foot">${this.shopAll ? `<p class="shp-info" data-default="${idle}">${idle}</p>` : '<span></span>'}`;
+    h += me === 'brain' ? `<button class="pl-btn pri" data-act="confirm">${this.K('ph.shop.go')}</button>` : this.waitBtn(p, 'brain');
+    return h + '</div>';
+  }
+  /** Light up on the floor plan and in the Überblick what the element under the mouse is about; in the full shop list also show the tool's exact numbers. */
   private onHover(target: HTMLElement | null) {
     const hlEl = target?.closest?.('[data-hl]') as HTMLElement | null;
     const toolEl = target?.closest?.('[data-tool]') as HTMLElement | null;
     const hl = hlEl?.dataset.hl ?? '',
       tool = toolEl?.dataset.tool ?? '';
-    if (hl === this.hoverHl && tool === this.hoverTool) return;
+    const infoEl = target?.closest?.('[data-scout], [data-ent]') as HTMLElement | null;
+    const info = infoEl ? (infoEl.dataset.scout ? 'sc.' + infoEl.dataset.scout : 'en.' + infoEl.dataset.ent) : '';
+    if (hl === this.hoverHl && tool === this.hoverTool && info === this.hoverInfo) return;
     this.hoverHl = hl;
     this.hoverTool = tool;
+    this.hoverInfo = info;
     this.applyHover();
   }
   private applyHover() {
     const keys = this.hoverHl ? this.hoverHl.split(' ') : [];
-    this.el.querySelectorAll('.bp-badge[data-fk], .bp-ent[data-fk]').forEach((b) => b.classList.toggle('hl', keys.includes(b.getAttribute('data-fk')!)));
+    this.el.querySelectorAll('.bp-badge[data-fk], .bp-ent[data-fk], .ov-row[data-fk]').forEach((b) => b.classList.toggle('hl', keys.includes(b.getAttribute('data-fk')!)));
+    const line = this.el.querySelector('.sct-info, .pln-info') as HTMLElement | null;
+    if (line) {
+      const d = this.hoverInfo ? pt(this.hoverInfo + '.details', undefined, this.lang()) : '';
+      line.textContent = d || (line.dataset.default ?? '');
+      line.classList.toggle('on', !!d);
+    }
     const info = this.el.querySelector('.shp-info') as HTMLElement | null;
     if (!info) return;
     const d = this.hoverTool ? pt('tool.' + this.hoverTool + '.details', undefined, this.lang()) : '';
@@ -487,33 +560,45 @@ export class PlanView {
 
   private ph_plan(p: any, me: Role | null) {
     const Pl = p.plan;
-    let h = `<div class="kicker">${this.K('ph.plan.kicker')}</div><h2>${this.K('ph.plan.title')}</h2>`;
-    h += `<h3 class="sub">${this.K('ph.plan.entrance')}</h3><div class="cards">` + (['vorder', 'liefer', 'dach'] as const).map((id) => {
+    const idle = `${this.K('ph.hover')} ${this.K('ui.locked')}`;
+    let h = `<div class="pln-body"><h2>${this.K('ph.plan.title')}</h2>`;
+    h += `<h3 class="pln-h">${this.K('ph.plan.entrance')}</h3><div class="pln-ents">` + (['vorder', 'liefer', 'dach'] as const).map((id) => {
       const e = VARGA.entrances[id];
       const dis = !!e.needs && !p.tools.includes(e.needs);
-      return this.card({ sel: Pl.entrance === id, dis, ro: !me, data: `data-ent="${id}"`, title: this.K('en.' + id + '.name'), text: dis ? this.K('ph.plan.needsRope') : this.K('en.' + id + '.text'), tags: e.tags.map((x) => this.K('tag.' + x)), details: this.K('en.' + id + '.details'), dk: 'en' + id });
+      return `<button type="button" class="pln-ent${Pl.entrance === id ? ' sel' : ''}${dis ? ' dis' : ''}${me ? '' : ' ro'}" data-ent="${id}" aria-pressed="${Pl.entrance === id}"${dis || !me ? ' aria-disabled="true"' : ''}><b>${this.K('en.' + id + '.name')}</b><span>${dis ? this.K('ph.plan.needsRope') : this.K('en.' + id + '.text')}</span></button>`;
     }).join('') + '</div>';
-    h += `<h3 class="sub">${this.K('ph.plan.posts')}</h3><p class="pl-muted small">${this.K('ph.plan.postsHint')}</p>`;
+    h += `<h3 class="pln-h">${this.K('ph.plan.posts')}</h3><p class="pln-hint">${this.K('ph.plan.postsHint')}</p>`;
     for (const r of ROLE_ORDER) {
       const seat = p.seats.find((x: any) => x.role === r);
       const mayEdit = !!me && (r === me || (me === 'brain' && seat.bot));
       h += `<div class="postrow${r === me ? ' me' : ''}"><div class="who"><b>${esc(seat.name)}${r === me ? ` <small>(${this.K('ui.you')})</small>` : ''}</b><span>${this.K('role.' + r + '.name')}</span></div><div class="pl-seg${mayEdit ? '' : ' ro'}" role="group">${POSTS.map((x) => `<button type="button" data-post="${r}:${x}" class="${Pl.posts[r] === x ? 'on' : ''}"${mayEdit ? '' : ' aria-disabled="true"'} aria-pressed="${Pl.posts[r] === x}">${this.K('post.' + x)}</button>`).join('')}</div></div>`;
     }
     const panelOk = Pl.entrance === 'liefer' && Pl.posts.brain === 'inside';
-    h += `<label class="toggle${panelOk ? '' : ' off'}"><input type="checkbox" data-panel="1"${Pl.panel ? ' checked' : ''}${panelOk && me ? '' : ' disabled'}> ${this.K('ph.plan.panel')} <span class="tag">80 %</span><span class="tag">5 Min</span></label>`;
-    h += `<h3 class="sub">${this.K('ph.plan.targets')}</h3><div class="order">` + (['tresor', 'vitrinen', 'lager'] as const).map((t) => {
+    h += `<label class="toggle${panelOk ? '' : ' off'}"><input type="checkbox" data-panel="1"${Pl.panel ? ' checked' : ''}${panelOk && me ? '' : ' disabled'}> ${this.K('ph.plan.panel')} <span class="tag">80 %</span></label>`;
+    h += `<h3 class="pln-h">${this.K('ph.plan.targets')}</h3><div class="order">` + (['tresor', 'vitrinen', 'lager'] as const).map((t) => {
       const i = Pl.targets.indexOf(t);
       return `<button type="button" class="chip${i >= 0 ? ' on' : ''}" data-tgt="${t}" aria-pressed="${i >= 0}"${me ? '' : ' aria-disabled="true"'}>${i >= 0 ? i + 1 + '. ' : '+ '}${this.K('tg.' + t + '.name')}</button>`;
     }).join('') + '</div>';
     if (Pl.targets.length > 1 && me) h += '<div class="order">' + Pl.targets.map((t: string, i: number) => (i > 0 ? `<button type="button" class="chip" data-up="${i}">${this.K('tg.' + t + '.name')} ↑</button>` : '')).join('') + '</div>';
+    // notes: what blocks the plan, and what neither the Überblick rows nor the time bar show
     const sm = p.summary;
+    const notes: string[] = [];
     if (sm) {
-      h += `<div class="summary"><h3>${this.K('ph.plan.summary')}</h3><ul class="plain">${sm.lines.slice(0, 3).map((l: Txt) => `<li>${this.T(p, l)}</li>`).join('')}</ul>${sm.lines.length > 3 ? this.det('<ul class="plain">' + sm.lines.slice(3).map((l: Txt) => `<li>${this.T(p, l)}</li>`).join('') + '</ul>', pt('ui.more'), 'smmore') : ''}`;
-      h += `<h3 style="margin-top:10px">${this.K('ph.plan.risks')}</h3><ul class="plain">${sm.errors.map((l: Txt) => `<li class="err">${this.T(p, l)}</li>`).join('')}${sm.risks.length ? sm.risks.slice(0, 3).map((l: Txt) => `<li class="risk">${this.T(p, l)}</li>`).join('') : `<li>${this.K('ph.plan.noRisks')}</li>`}</ul>${sm.risks.length > 3 ? this.det('<ul class="plain">' + sm.risks.slice(3).map((l: Txt) => `<li class="risk">${this.T(p, l)}</li>`).join('') + '</ul>', pt('ui.moreN', { n: sm.risks.length - 3 }), 'rkmore') : ''}</div>`;
+      const rows: any[] = p.overview?.rows ?? [];
+      const by = (id: string) => rows.find((r) => r.id === id)?.by?.k;
+      for (const l of sm.errors as Txt[]) notes.push(`<li class="err">${this.T(p, l)}</li>`);
+      for (const l of sm.lines as Txt[]) if (l.k === 'sm.noDriver' || l.k === 'sm.noLookout') notes.push(`<li>${this.T(p, l)}</li>`);
+      for (const l of sm.risks as Txt[]) {
+        const k = l.k;
+        // the Überblick shows a tool without the Hände inside and a loop without a post only for the obstacle at hand
+        const shown = (k === 'rk.noHands' && (by('alarm') === 'ov.by.noHands' || by('safe') === 'ov.by.noHands')) || (k === 'rk.loopNoPost' && by('guard') === 'ov.by.noPost');
+        if (k === 'rk.lager' || ((k === 'rk.noHands' || k === 'rk.loopNoPost') && !shown) || (k === 'rk.window' && p.overview?.time?.partial)) notes.push(`<li class="risk">${this.T(p, l)}</li>`);
+      }
     }
-    h += `<p class="pl-muted small">${this.K('ui.locked')}</p>`;
-    h += me === 'brain' ? `<div class="btnrow"><button class="pl-btn pri" data-act="confirm"${sm && sm.errors.length ? ' disabled' : ''}>${this.K('ph.plan.go')}</button></div>` : this.waitBtn(p, 'brain');
-    return h;
+    if (notes.length) h += `<h3 class="pln-h">${this.K('ph.plan.notes')}</h3><ul class="pln-notes">${notes.join('')}</ul>`;
+    h += `</div><div class="pln-foot"><p class="pln-info" data-default="${idle}">${idle}</p><div class="pln-bar">`;
+    h += me === 'brain' ? `<button class="pl-btn pri" data-act="confirm"${sm && sm.errors.length ? ' disabled' : ''}>${this.K('ph.plan.go')}</button>` : this.waitBtn(p, 'brain');
+    return h + '</div></div>';
   }
 
   private dice(p: any, d: any) {
@@ -715,6 +800,12 @@ export class PlanView {
     const t = target.closest('button') as HTMLButtonElement | null;
     if (!t || t.disabled || t.getAttribute('aria-disabled') === 'true') return;
     const d = t.dataset;
+    // view-local toggles: nothing is sent
+    if (d.local === 'shop-all') {
+      this.shopAll = !this.shopAll;
+      this.key = '';
+      return;
+    }
     if (d.act === 'close') {
       const p = this.pub();
       this.dismissed = p?.job ?? -1;

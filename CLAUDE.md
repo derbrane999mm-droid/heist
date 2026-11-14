@@ -30,18 +30,24 @@ Serious, dry, tactical. No goofy jokes. Realistic, present-day look. Not a copy 
 
 ```
 npm install
+npx playwright-core install chromium-headless-shell   # once per machine: the browser the tests run in
 npm run dev          # local dev server
 npm run build        # type check + production build into dist/
 node tests/kcc.mjs            # movement (pure Node)
 node tests/plan-logic.mjs     # planning rules (pure Node)
 node tests/plan.mjs           # planning round, 4 players + solo (browser)
+node tests/shots-prep.mjs     # one screenshot per preparation step (--size 1440x900 --size 1280x720)
 node tests/lineup.mjs         # role voting (browser)
 node tests/smoke-levels.mjs hq casino   # every level boots (browser)
 node tests/e2e.mjs            # big 4-player run of the old foundation (browser)
 ./scripts/deploy.sh  # build and force-push dist/ to gh-pages (the public site)
 ```
 
-`NV_DIST=1` in front of a browser test runs it against the production build. `tests/harness.mjs` finds the local Chrome and uses the real GPU; browser tests may run in parallel (each has its own ports) and keep running while source files are edited (the test server does not watch files or hot-reload). `NV_CHROME=<path>` picks another browser, `NV_SOFTWARE=1` forces software rendering (machines without a GPU), `NV_HEADED=1` shows the windows.
+`NV_DIST=1` in front of a browser test runs it against the production build. The tests run in Playwright's headless shell with the real GPU, never in the installed Chrome (started headless, it made macOS jump to the desktop with Mert's Chrome windows on every run). They may run in parallel (each has its own ports) and keep running while source files are edited (the test server does not watch files or hot-reload). `NV_HEADED=1` shows the windows (uses the installed browser), `NV_CHROME=<path>` picks a browser, `NV_SOFTWARE=1` forces software rendering. Known gap: the two voice-mesh checks of `tests/e2e.mjs` fail in the headless shell (not investigated yet).
+
+## Showing Mert a change
+
+The dev server reloads his page on every file edit and throws him back to the main menu, so show him a frozen build instead: `npx vite build --outDir dist-review`, then the preview config `heist-review` (http://localhost:4173, `.claude/launch.json`). `?plan=1&to=<brief|scout|facts|shop|plan>` jumps a solo job straight to that preparation step with 60-minute timers (`&seed=<n>` fixes the job). Look at the screenshots yourself before he sees anything.
 
 ## Hard rules (each caused a visible bug)
 

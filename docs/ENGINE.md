@@ -105,9 +105,16 @@ One job against the "Auktionshaus Varga", ported from the approved single-player
 - `view.ts` + `plan.css`: the overlay. Frees the pointer, freezes the player, keeps push-to-talk working (`talkHeld()`), shows who decides and the timer.
 - `texts.ts`: every plan text, keyed. The logic emits `{ k, p }` (key + parameters; `{ r: role }` = that seat's name, `{ e: n }` = money), each client renders in its own language. German only for now; English falls back to German. Not part of i18n.ts.
 
+The preparation steps share one layout (approved by Mert, 2026-11-14: "everything at one glance", minutes in one place only, little text per screen):
+- Left, above the floor plan, in every preparation phase: the "Überblick" card (`ov-*`). Rows Alarm, Wache, Tresor, Polizei, each with what the crew knows and a status pill, plus one time bar (how long the plan takes against the window until the guard comes). The host computes it: `overview(S, tools, planFixed)` in `logic.ts`, replicated as `pub().overview`, from `S.known` only. During shopping it judges the shared basket, in the plan step also entrance, posts and targets. Minutes appear in the time bar and nowhere else.
+- Right: only what matters for the step, as compact rows; details in a one-line hover info in a fixed footer that also holds the confirm button. Scouting (`sct-*`): six rows, "klärt: …", rows a selected scout will clear show "wird geklärt". Shopping (`shp-*`): "Das fehlt euch noch" (tools that answer open rows, `toolAdvice`), the basket, and one button for the full grouped list. Plan (`pln-*`): entrance, posts, targets, and "Hinweise" for what the Überblick does not show.
+- New screens follow the same rule: say in plain words what a choice does, never add a number that the time bar already carries.
+
 Who decides: stake = Zocker (`gambler`); scouting, shopping, entrance and targets = shared board, everyone toggles, the Wortführer (`brain`) confirms; posts = each player his own (the Wortführer also sets bots'); job decisions = the role named in the rules; secret offers and accusations = every human privately, applied only when all answered or the timer ran out.
 
 Starting a job: `deps.plan?.start()` from a level (LevelDeps.plan), `?plan=1` (host starts right after the session starts), or `window.__nv.plan.start()`. `plan.running()` is true until the debrief. Tests: `window.__nvPlanTimes = { board: 90000, … }` shortens or lengthens the phase timers, `window.__nvPlanSeed` fixes the job. The host stores `missions['plan.varga'] = { stars, best }` in the campaign save at the debrief.
+
+Development helper: `?plan=1&to=<brief|scout|facts|shop|plan>[&seed=<n>]` (`PlanController.devJump`) clicks a solo job through to that step with 60-minute timers.
 
 Tests: `node tests/plan-logic.mjs` (rules, balance, privacy of the public view), `node tests/plan.mjs` (4 players + solo), `tests/shots-plan.mjs` (screenshots).
 
@@ -127,7 +134,7 @@ Tests: `node tests/plan-logic.mjs` (rules, balance, privacy of the public view),
 
 - `npx tsc --noEmit` must be clean, `npm run build` must succeed.
 - Browser tests: copy the pattern in tests/lineup.mjs. `startServers({ port, sigPort })` (use your own ports), `openPlayer(env, { name, quality: 'low', width: 420, height: 240, renderSkip: 12, extra: '&level=<name>' })`, then drive the game through `window.__nv` (`start(code)`, `tp(x, y, z, yaw, pitch)`, `input.debugSet(code, down)`, `interactions.debugUse(id)`, `session`, `player`, `level`).
-- The harness launches the local Chrome with the real GPU (see CLAUDE.md for `NV_CHROME`, `NV_SOFTWARE`, `NV_HEADED`). Tests may run in parallel as long as each uses its own ports, also while someone edits `src/`: the test server has no file watcher and no hot reload, so a test always runs the code as it was when its pages loaded. After waiting for a state change on the host, wait for the page you check as well: on a fast machine a client has not redrawn yet.
+- The harness launches Playwright's headless shell with the real GPU (see CLAUDE.md for the one-time install and for `NV_CHROME`, `NV_SOFTWARE`, `NV_HEADED`). Every test player gets microphone permission: without it the browser offers peer connections only the default route, and test players on one machine cannot reach each other when that route is a VPN. Tests may run in parallel as long as each uses its own ports, also while someone edits `src/`: the test server has no file watcher and no hot reload, so a test always runs the code as it was when its pages loaded. After waiting for a state change on the host, wait for the page you check as well: on a fast machine a client has not redrawn yet.
 - Look at your level: `node tests/shots.mjs medium` style screenshots into `test-out/`, then open the PNG.
 
 ## Calibration samples (`calib-*` levels)

@@ -48,7 +48,10 @@ try {
   await shot(op, 'plan-3-private-offer-1280.png');
   for (const p of pages) await p.click('.plan-ov [data-offer="decline"]').catch(() => {});
   await phaseIs(host, 'shop');
+  // the full tool list is behind one button (view-local: opens on this page only)
+  await click(by.bait, '[data-local="shop-all"]');
   await click(by.bait, '[data-tool="bohrer"]');
+  await click(by.hands, '[data-local="shop-all"]');
   await click(by.hands, '[data-tool="scanner"]');
   await sleep(600);
   await shot(by.bait, 'plan-4-shop-1280.png');

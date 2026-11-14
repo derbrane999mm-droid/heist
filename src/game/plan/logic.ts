@@ -600,6 +600,107 @@ export function planSummary(S: Game) {
   return { lines, risks, errors: validatePlan(S) };
 }
 
+// ---------------------------------------------------------------- overview
+// The one-glance view of the preparation ("Überblick"): for each obstacle what the crew knows
+// and whether it is dealt with, plus one time bar. Read from S.known only, never from S.facts.
+export type RowState = 'ok' | 'alt' | 'warn' | 'open' | 'unknown' | 'off';
+export interface OverviewRow {
+  id: 'alarm' | 'guard' | 'safe' | 'police';
+  state: RowState;
+  /** what the crew knows, null if unknown */
+  what: Txt | null;
+  rumour: boolean;
+  /** how it is dealt with, or what is missing */
+  by: Txt | null;
+}
+export interface Overview {
+  rows: OverviewRow[];
+  time: { lo: number; hi: number; window: number | null; state: 'ok' | 'warn' | 'open' | 'unknown'; /** the vault is a target but the estimate leaves its time out */ partial: boolean };
+}
+const ALARM_TOOL: Record<string, string> = { tuer: 'magnet', bewegung: 'schaum', still: 'stoer' };
+/**
+ * `tools`: the tools to judge with (the shared basket while shopping, else the bought ones).
+ * `planFixed`: entrance, posts, targets and the panel are being decided (phase 'plan'); before that
+ * only the tools count, and a way around an obstacle is "possible", not chosen.
+ */
+export function overview(S: Game, tools: string[], planFixed: boolean): Overview {
+  const V: Game = { ...S, tools };
+  const P = S.plan,
+    J = S.job,
+    K = S.known;
+  const hasT = (id: string) => tools.indexOf(id) >= 0;
+  const tn = (id: string) => T('tool.' + id + '.name');
+  const byTool = (id: string) => T('ov.by.tool', { t: tn(id) });
+  const need = (id: string) => T('ov.by.need', { t: tn(id) });
+  const isIn = (r: Role) => P.posts[r] === 'inside';
+  const kv = (k: FactKey) => (K[k] ? K[k]!.v : null);
+  const row = (id: OverviewRow['id'], st: [RowState, Txt | null]): OverviewRow => {
+    const kn = K[id];
+    return { id, state: st[0], what: kn ? T((id === 'police' ? 'ov.police.' : 'fact.' + id + '.') + kn.v) : null, rumour: !!kn?.rumour, by: st[1] };
+  };
+
+  // alarm
+  let a: [RowState, Txt | null];
+  const al = kv('alarm');
+  if (planFixed && P.panel) a = ['alt', T('ov.by.panel')];
+  else if (!al) a = ['unknown', null];
+  else {
+    const tool = ALARM_TOOL[al];
+    // door contacts only sit on doors: the roof hatch has none
+    if (planFixed && al === 'tuer' && !J.entrances[P.entrance].door) a = ['alt', T('ov.by.roof')];
+    else if (hasT(tool)) a = planFixed && tool !== 'stoer' && !isIn('hands') ? ['warn', T('ov.by.noHands', { t: tn(tool) })] : ['ok', byTool(tool)];
+    else if (!planFixed && al === 'tuer' && hasT('seil')) a = ['alt', T('ov.by.roofOpt')];
+    else a = ['open', need(tool)];
+  }
+
+  // guard
+  let g: [RowState, Txt | null];
+  const gd = kv('guard'),
+    bl = kv('blind');
+  if (!gd) g = ['unknown', null];
+  else if (gd === 'rundgang') g = ['ok', T('ov.by.none')];
+  else if (gd === 'hund') {
+    // the dog only runs in the yard
+    if (hasT('leckerli')) g = ['ok', byTool('leckerli')];
+    else if (planFixed) g = J.entrances[P.entrance].yard ? ['open', need('leckerli')] : ['alt', T('ov.by.notYard')];
+    else g = ['alt', T('ov.by.notYardOpt')];
+  } else {
+    // monitor room: the loop needs someone on lookout; the blind spot needs no tool
+    const lookout = ROLE_ORDER.some((r) => P.posts[r] === 'lookout');
+    if (planFixed && bl === P.entrance && !(hasT('schleife') && lookout)) g = ['alt', T('ov.by.blind')];
+    else if (hasT('schleife')) g = planFixed && !lookout ? ['warn', T('ov.by.noPost')] : ['ok', byTool('schleife')];
+    else if (!planFixed && (bl === 'liefer' || (bl === 'dach' && hasT('seil')))) g = ['alt', T('ov.by.blindOpt')];
+    else g = ['open', need('schleife')];
+  }
+
+  // safe
+  let s: [RowState, Txt | null];
+  const sf = kv('safe'),
+    brainIn = isIn('brain');
+  if (planFixed && P.targets.indexOf('tresor') < 0) s = ['off', T('ov.by.noTarget')];
+  else if (hasT('bohrer')) {
+    // without the Hände the drill is unreliable, unless the quiet way works anyway
+    const quiet = (sf === 'mech' && brainIn) || (sf === 'elek' && brainIn && hasT('decoder'));
+    s = planFixed && !isIn('hands') && !quiet ? ['warn', T('ov.by.noHands', { t: tn('bohrer') })] : ['ok', byTool('bohrer')];
+  } else if (!sf) s = ['unknown', null];
+  else if (sf === 'zeit') s = ['open', need('bohrer')];
+  else if (sf === 'elek') {
+    if (!hasT('decoder')) s = ['open', T('ov.by.needSafeTool')];
+    else s = planFixed && !brainIn ? ['warn', T('ov.by.noBrain')] : ['ok', byTool('decoder')];
+  } else s = planFixed && !brainIn ? ['open', T('ov.by.noBrainHand')] : ['ok', T('ov.by.hand')];
+
+  // police
+  const p: [RowState, Txt | null] = [kv('police') ? 'ok' : 'unknown', hasT('scanner') ? T('ov.by.scanner') : null];
+
+  // time: the plan as it stands (before the plan step: the default plan) against the guard's window
+  const [lo, hi] = estimateTime(V);
+  const window = gd ? windowFor(V, gd) : null;
+  // a vault that cannot be opened with these tools and this plan adds no time: the estimate is then incomplete
+  const partial = P.targets.indexOf('tresor') >= 0 && possibleOrAll(V, 'safe').some((sf) => safeTime(V, sf)[0] === 0);
+  const ts = partial || window === null ? 'unknown' : hi > window ? 'open' : hi > window - 2 ? 'warn' : 'ok';
+  return { rows: [row('alarm', a), row('guard', g), row('safe', s), row('police', p)], time: { lo, hi, window, state: ts, partial } };
+}
+
 // ---------------------------------------------------------------- shopping advice
 // What each tool is for, read against what the crew knows. Everything here works on the
 // replicated `known` and the tool list alone, so every client computes it for itself:
@@ -696,6 +797,11 @@ export function shopCover(known: KnownPub, tools: string[], g: ShopGroupId): Cov
   return null;
 }
 
+/** The values a fact can still have; all of them when wrong rumours make what the crew knows contradict itself. */
+function possibleOrAll(S: Game, k: FactKey): string[] {
+  const v = possibleValues(S, k);
+  return v.length ? v : S.job.facts[k];
+}
 export function estimateTime(S: Game): [number, number] {
   const P = S.plan,
     J = S.job;
@@ -708,13 +814,13 @@ export function estimateTime(S: Game): [number, number] {
   add(J.entrances[P.entrance].door ? (inside(S, 'hands') ? 3 : 1) : 3);
   if (P.panel) add(5);
   else {
-    const al = possibleValues(S, 'alarm');
+    const al = possibleOrAll(S, 'alarm');
     const t1 = al.map((a) => (a === 'tuer' && has(S, 'magnet') && J.entrances[P.entrance].door ? 1 : 0) + (a === 'bewegung' && has(S, 'schaum') ? P.targets.length : 0));
     add(Math.min(...t1), Math.max(...t1));
   }
   for (const t of P.targets) {
     if (t === 'tresor') {
-      const sfs = possibleValues(S, 'safe').map((sf) => safeTime(S, sf)[0] as number);
+      const sfs = possibleOrAll(S, 'safe').map((sf) => safeTime(S, sf)[0] as number);
       add(Math.min(...sfs), Math.max(...sfs));
     } else add(J.targets[t].time);
   }
@@ -2369,6 +2475,7 @@ export class PlanMachine {
       plan: { entrance: S.plan.entrance, posts: { ...S.plan.posts }, targets: S.plan.targets.slice(), panel: S.plan.panel },
       preTraces: (S.preTraces || []).slice(),
       summary: pre ? planSummary(S) : null,
+      overview: pre ? overview(S, this.phase === 'shop' ? this.board.tools : S.tools, this.phase === 'plan') : null,
     };
     if (R) {
       const d = this.pending && this.pending.kind === 'decide' && this.pendingOpen ? this.pending : null;
