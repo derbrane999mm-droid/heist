@@ -1,0 +1,202 @@
+/* Hacking terminals: the keyboard overlay and the calibration end card.
+   Uses the variables and .label / .keycap from ui/styles.css. */
+
+.hack {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  /* 16:9 board plus head, hint and key row must fit the window height; 800px clears the crew list at 1280 */
+  width: min(800px, 92vw, calc((100vh - 240px) * 16 / 9));
+  min-width: 300px;
+  padding: 16px 20px 15px;
+  background: rgba(6, 9, 13, 0.93);
+  border: 1px solid var(--line-strong);
+  border-top: 3px solid var(--accent);
+  border-radius: 4px;
+  backdrop-filter: blur(10px);
+  box-shadow: 0 30px 90px rgba(0, 0, 0, 0.6);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.hack.side-b {
+  border-top-color: var(--warn);
+}
+.hack.strike {
+  border-color: var(--danger);
+  animation: hk-shake 0.4s ease-out;
+}
+@keyframes hk-shake {
+  0% {
+    transform: translate(calc(-50% - 9px), -50%);
+  }
+  25% {
+    transform: translate(calc(-50% + 7px), -50%);
+  }
+  50% {
+    transform: translate(calc(-50% - 5px), -50%);
+  }
+  75% {
+    transform: translate(calc(-50% + 2px), -50%);
+  }
+  100% {
+    transform: translate(-50%, -50%);
+  }
+}
+
+/* the terminal says what to do itself: the objective box would only sit half behind it */
+#ui.hk-open .objective {
+  visibility: hidden;
+}
+
+.hk-head {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+}
+.hk-head .label {
+  color: var(--accent);
+}
+.hack.side-b .hk-head .label {
+  color: var(--warn);
+}
+.hk-title {
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+.hk-status {
+  margin-left: auto;
+  font-family: var(--mono);
+  font-size: 13px;
+  letter-spacing: 0.06em;
+  color: var(--dim);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.hk-status.bad {
+  color: var(--danger);
+}
+.hk-status.ok {
+  color: #5dff8f;
+}
+
+.hk-hint {
+  font-size: 15px;
+  line-height: 1.4;
+  color: var(--text);
+  min-height: 21px;
+}
+
+.hk-board {
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  background: #03070b;
+  overflow: hidden;
+}
+.hk-board canvas {
+  display: block;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+}
+
+.hk-keys {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 20px;
+  font-size: 13px;
+  letter-spacing: 0.04em;
+  color: var(--dim);
+  min-height: 26px;
+}
+.hk-key {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+.hk-key .keycap {
+  font-size: 12px;
+  min-width: 24px;
+  height: 24px;
+  padding: 0 5px;
+}
+.hk-key span:last-child {
+  margin-left: 3px;
+}
+.hk-leave {
+  margin-left: auto;
+}
+.hack.side-b .hk-key .keycap {
+  border-color: var(--warn);
+  color: var(--warn);
+}
+
+/* ---------- end card of the calibration level ---------- */
+.hk-end {
+  position: absolute;
+  left: 50%;
+  top: 74px;
+  transform: translateX(-50%);
+  width: min(520px, 70vw);
+  padding: 18px 24px 20px;
+  background: rgba(6, 9, 13, 0.92);
+  border: 1px solid var(--line-strong);
+  border-top: 3px solid #5dff8f;
+  border-radius: 4px;
+  backdrop-filter: blur(10px);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  animation: toast-in 0.3s ease-out;
+}
+.hk-end .label {
+  color: #5dff8f;
+}
+.hk-end-title {
+  font-size: 30px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  line-height: 1.1;
+}
+.hk-end-stars {
+  font-size: 34px;
+  letter-spacing: 0.2em;
+  color: var(--warn);
+  line-height: 1;
+  text-shadow: 0 0 22px rgba(255, 162, 58, 0.35);
+}
+.hk-end-stars i {
+  font-style: normal;
+  color: rgba(255, 255, 255, 0.16);
+  text-shadow: none;
+}
+.hk-end-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+}
+.hk-end-cell {
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  padding: 9px 12px;
+  background: rgba(255, 255, 255, 0.03);
+}
+.hk-end-cell b {
+  display: block;
+  margin-top: 3px;
+  font-family: var(--mono);
+  font-size: 22px;
+  font-weight: 500;
+  color: var(--text);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hack.strike {
+    animation: none;
+  }
+}
