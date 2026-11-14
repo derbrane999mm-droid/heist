@@ -14,11 +14,8 @@ export const DEFAULT_ICE: RTCIceServer[] = [
   { urls: 'stun:stun.l.google.com:19302' },
   { urls: 'stun:stun.cloudflare.com:3478' },
   { urls: 'stun:stun1.l.google.com:19302' },
-  // PeerJS's own shared public relay (the one its default config ships with), switched on by the owner
-  // on 2026-11-14 after a real join over a mobile network failed. A last resort: the browser prefers a
-  // direct link and falls back to the relay only when two players cannot reach each other. Shared, no
-  // guarantees; a relay of our own in net.json would come on top.
-  { urls: ['turn:eu-0.turn.peerjs.com:3478', 'turn:us-0.turn.peerjs.com:3478'], username: 'peerjs', credential: 'peerjsp' },
+  // No relay by default: PeerJS's shared public relay (eu-0/us-0.turn.peerjs.com) no longer resolves
+  // (checked 2026-11-14). A relay has to come from public/net.json.
 ];
 
 export interface PeerServerConfig {
