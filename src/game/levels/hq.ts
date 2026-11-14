@@ -1314,10 +1314,17 @@ export function createHq(deps: LevelDeps): Level {
     menuCamera(time, cam) {
       const w = (Math.PI * 2) / 52;
       const a = time * w;
-      cam.position.set(-1.25 + Math.sin(a) * 0.6, 1.45 + Math.sin(a * 2 + 1) * 0.05, 1.1 + Math.cos(a) * 0.25);
-      look.set(TABLE.x + Math.sin(a + 0.6) * 0.15, 0.82, TABLE.z + Math.cos(a) * 0.1);
+      cam.position.set(-1.25 + Math.sin(a) * 0.6, 1.32 + Math.sin(a * 2 + 1) * 0.04, 1.1 + Math.cos(a) * 0.25);
+      const tx = TABLE.x + Math.sin(a + 0.6) * 0.15;
+      const tz = TABLE.z + Math.cos(a) * 0.1;
+      const dx = tx - cam.position.x;
+      const dz = tz - cam.position.z;
+      const len = Math.hypot(dx, dz) || 1;
+      // aim to the left of the table so it sits in the right part of the frame;
+      // no local yaw afterwards, which would roll the horizon and tilt the windows
+      look.set(tx + (dz / len) * 0.95, 1.02, tz - (dx / len) * 0.95);
+      cam.up.set(0, 1, 0);
       cam.lookAt(look);
-      cam.rotateY(0.3);
     },
     attach() {},
     detach() {
