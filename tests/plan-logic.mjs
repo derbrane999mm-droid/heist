@@ -296,5 +296,65 @@ function runMachine(seed, seats, behave, limit = 20000) {
 
 check('every text key from the step machine exists in the German table', missingKeys.size === 0, [...missingKeys].slice(0, 8).join(', '));
 
+// ---------------------------------------------------------------------------
+// shopping advice: pure reading of what the crew knows against the tool list
+// ---------------------------------------------------------------------------
+{
+  const toolIds = E.VARGA.tools.map((t) => t.id);
+  const STATES = new Set(['fit', 'miss', 'open', 'any']);
+  const FK = ['alarm', 'safe', 'guard', 'blind', 'police'];
+  const opts = (k) => [null, ...E.VARGA.facts[k].flatMap((v) => [{ v, rumour: false }, { v, rumour: true }])];
+  const allOpts = FK.map(opts);
+  const strip = (kn) => Object.fromEntries(Object.entries(kn).filter(([, x]) => x).map(([k, x]) => [k, { v: x.v, rumour: false }]));
+  let combos = 0, badState = 0, rumourFlag = 0, rumourState = 0;
+  const missing = new Set();
+  const rumourDiffs = new Set();
+  const seenKeys = new Set();
+  const idx = FK.map(() => 0);
+  for (;;) {
+    const known = {};
+    FK.forEach((k, i) => { if (allOpts[i][idx[i]]) known[k] = allOpts[i][idx[i]]; });
+    const plain = strip(known);
+    combos++;
+    for (const id of toolIds) {
+      const a = E.toolAdvice(known, id);
+      if (!STATES.has(a.state)) badState++;
+      const want = a.fact ? !!known[a.fact]?.rumour : false;
+      if (a.rumour !== want) rumourFlag++;
+      const b = E.toolAdvice(plain, id);
+      if (a.state !== b.state) { rumourState++; rumourDiffs.add(id); }
+      for (const k of keysIn(a.text)) {
+        if (!seenKeys.has(k)) { seenKeys.add(k); if (!hasText(k)) missing.add(k); }
+      }
+    }
+    let j = 0;
+    while (j < FK.length && ++idx[j] === allOpts[j].length) idx[j++] = 0;
+    if (j === FK.length) break;
+  }
+  check('shop advice: every tool x every known/rumour/unknown combination gives a valid state', badState === 0 && combos > 16000, `${combos} combinations, ${badState} bad`);
+  check('shop advice: every text key (nested params included) exists in the German table', missing.size === 0 && seenKeys.size > 20, `${seenKeys.size} keys; missing: ${[...missing].slice(0, 8).join(', ')}`);
+  check('shop advice: rumour flag is true exactly when the fact it was read from is a rumour', rumourFlag === 0, `${rumourFlag} mismatches`);
+  check('shop advice: a rumour never changes the state compared with the verified value', rumourState === 0, `${rumourState} differences, tools: ${[...rumourDiffs].join(',')}`);
+
+  const groupTools = E.SHOP_GROUPS.flatMap((g) => g.tools);
+  const dup = groupTools.filter((t, i) => groupTools.indexOf(t) !== i);
+  const unknownT = groupTools.filter((t) => !toolIds.includes(t));
+  const absent = toolIds.filter((t) => groupTools.filter((x) => x === t).length !== 1);
+  check('shop groups: every tool is in exactly one group', absent.length === 0 && dup.length === 0, `not once: ${absent.join(',')} dup: ${dup.join(',')}`);
+  check('shop groups: no unknown tool ids, no empty group, group ids unique', unknownT.length === 0 && E.SHOP_GROUPS.every((g) => g.tools.length && g.facts.length) && new Set(E.SHOP_GROUPS.map((g) => g.id)).size === E.SHOP_GROUPS.length, unknownT.join(','));
+
+  const kn = (o) => Object.fromEntries(Object.entries(o).map(([k, v]) => [k, { v, rumour: false }]));
+  const st = (o, id) => E.toolAdvice(kn(o), id).state;
+  check('shop advice: safe=zeit -> decoder miss, bohrer fit', st({ safe: 'zeit' }, 'decoder') === 'miss' && st({ safe: 'zeit' }, 'bohrer') === 'fit');
+  check('shop advice: safe unknown -> decoder open, bohrer any', st({}, 'decoder') === 'open' && st({}, 'bohrer') === 'any');
+  check('shop advice: alarm=still -> stoer fit, magnet and schaum miss', st({ alarm: 'still' }, 'stoer') === 'fit' && st({ alarm: 'still' }, 'magnet') === 'miss' && st({ alarm: 'still' }, 'schaum') === 'miss');
+  check('shop advice: guard=hund -> leckerli fit; guard unknown -> leckerli open', st({ guard: 'hund' }, 'leckerli') === 'fit' && st({}, 'leckerli') === 'open');
+  const cv = (o, t, g) => E.shopCover(kn(o), t, g);
+  check('shop cover: alarm', cv({ alarm: 'tuer' }, ['magnet'], 'alarm') === 'yes' && cv({ alarm: 'tuer' }, [], 'alarm') === 'no' && cv({}, [], 'alarm') === 'unknown');
+  check('shop cover: safe', cv({ safe: 'mech' }, [], 'safe') === 'none' && cv({}, ['bohrer'], 'safe') === 'yes');
+  check('shop cover: alternatives (alt) and the cases that stay no', cv({ alarm: 'tuer' }, ['seil'], 'alarm') === 'alt' && cv({ alarm: 'bewegung' }, ['seil'], 'alarm') === 'no' && cv({ guard: 'hund' }, [], 'guard') === 'alt' && cv({ guard: 'monitor', blind: 'liefer' }, [], 'guard') === 'alt' && cv({ guard: 'monitor', blind: 'dach' }, ['seil'], 'guard') === 'alt' && cv({ guard: 'monitor', blind: 'dach' }, [], 'guard') === 'no' && cv({ guard: 'monitor', blind: 'keiner' }, ['seil'], 'guard') === 'no' && cv({ guard: 'monitor' }, [], 'guard') === 'no');
+  check('shop cover: guard and way', cv({ guard: 'rundgang' }, [], 'guard') === 'none' && cv({ guard: 'monitor' }, ['schleife'], 'guard') === 'yes' && cv({ police: 'kurz' }, [], 'way') === null);
+}
+
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);

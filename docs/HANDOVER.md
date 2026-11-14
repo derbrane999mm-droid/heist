@@ -38,6 +38,7 @@ Mert played three versions of the planning round as a single-player web page and
 
 ## What is missing (in the order I would do it)
 
+0. **Preparation menu, clarity (Mert, 2026-11-14, comes first).** He likes how the crew prepares but finds the menu unclear: you cannot see what a choice does later ("Folgen unklar") and the lists are too long. He wants plain words on the card itself, not hover-only help and not a tutorial screen. Shopping is rebuilt as the first example (local only, not deployed): tools grouped by the question they answer, every tile says whether it fits what the crew knows (`toolAdvice`, `shopCover` in `logic.ts`, public knowledge only), ticks on the floor plan, a fixed footer with what the basket leaves open. Waiting for his verdict; if he likes it, scouting and the plan step get the same treatment, and "Zurück zum Einkaufen" becomes less urgent. He has more changes to the steps in mind and has not listed them yet: ask.
 1. **The job in first person.** Right now the job itself is a sequence of decisions on the planning screen. The plan is to replace its beats, one at a time, with playable scenes in the approved look (door, guard, safe, getaway), so there is something playable after every step. This is where a local machine helps most: real GPU, live preview, free assets.
 2. **Preparation jobs before the big target.** Decided structure: one big target; the preparation jobs are the crew's strategy, with more possible preparations than nights, so they must choose which information and gear to get. Attention and cash should carry over between jobs (not implemented: the next job starts fresh).
 3. **The big target.** Not chosen yet. Not a casino. It stays hidden from Mert.
@@ -69,7 +70,7 @@ A wave shooter ("a zombie mode with fewer resources"), a pure party/quiz game, t
 
 ## First steps for a local session
 
-1. `npm install`, `npm run dev`, open the preview: main menu over the HQ, create a crew, walk to the planning table, press E. Play one job alone with bots to see the whole loop.
-2. Make `tests/harness.mjs` use the local Chrome with GPU and drop the `flock` serialisation; run `node tests/plan-logic.mjs`, `node tests/plan.mjs`, `node tests/lineup.mjs`, `node tests/smoke-levels.mjs hq casino`.
+1. Done: the project runs on Mert's Mac (`npm run dev`, preview config in `.claude/launch.json`).
+2. Done: `tests/harness.mjs` uses the local Chrome with the GPU, no `flock`; the browser tests pass locally. Found on the way: a picked target for a secret offer was wiped on redraw, so such an offer could not be accepted (fixed).
 3. Ask Mert for the private notes about the four players (they are deliberately not in this repo) and for his verdict on the playable build.
 4. Then start item 1 above with one scene, show it, and continue from his verdict.

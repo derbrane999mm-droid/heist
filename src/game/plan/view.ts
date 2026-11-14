@@ -16,7 +16,7 @@ import type { Player } from '../player';
 import { settings } from '../../core/settings';
 import { onLangChange } from '../../core/i18n';
 import { tx, pt, eur, type Txt, type Lang } from './texts';
-import { VARGA, ROLE_ORDER, STAKE_ORDER, POSTS, ACCUSE_BONUS, ACCUSE_FINE, offerDef, type Role } from './logic';
+import { VARGA, ROLE_ORDER, STAKE_ORDER, POSTS, ACCUSE_BONUS, ACCUSE_FINE, SHOP_GROUPS, offerDef, toolAdvice, shopCover, type Role, type FactKey, type ShopGroupId } from './logic';
 
 const esc = (s: unknown) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!);
 const STEPS = ['stake', 'brief', 'scout', 'shop', 'plan', 'run', 'debrief'] as const;
@@ -37,6 +37,9 @@ export class PlanView {
   private priv: any = null;
   private key = '';
   private shownPhase = '';
+  /** what the mouse is over in the shop: facts to light up on the floor plan, tool to explain */
+  private hoverHl = '';
+  private hoverTool = '';
   private shownJob: unknown = null;
   private open = false;
   private dismissed = -1;
@@ -61,6 +64,9 @@ export class PlanView {
     this.el.className = 'plan-ov interactive hidden';
     root.append(this.el);
     this.el.addEventListener('click', (e) => this.onClick(e));
+    this.el.addEventListener('mouseover', (e) => this.onHover(e.target as HTMLElement));
+    this.el.addEventListener('focusin', (e) => this.onHover(e.target as HTMLElement));
+    this.el.addEventListener('mouseleave', () => this.onHover(null));
     this.el.addEventListener('toggle', (e) => {
       const d = e.target as HTMLDetailsElement;
       const k = d.dataset?.dk;
@@ -219,7 +225,9 @@ export class PlanView {
   // ------------------------------------------------------------------ render
 
   private render(p: any, phaseChanged: boolean, newBeats: boolean) {
-    const panelOld = this.el.querySelector('.pl-panel') as HTMLElement | null;
+    // the part of the panel that scrolls (the shop keeps its footer outside of it)
+    const scroller = () => (this.el.querySelector('.pl-panel .shp-body') || this.el.querySelector('.pl-panel')) as HTMLElement | null;
+    const panelOld = scroller();
     const scroll = panelOld && !phaseChanged ? panelOld.scrollTop : 0;
     const me = this.myRole(p);
     let body: string;
@@ -230,14 +238,16 @@ export class PlanView {
     }
     const head = this.header(p, me);
     const panel = this.panel(p, me);
-    this.el.innerHTML = `<div class="pl-app">${head}<main><section class="pl-left"><div class="cap"><span>${this.K('ui.floor')}</span><span>${this.K(p.phase === 'debrief' ? 'ui.floorKeyEnd' : 'ui.floorKey')}</span></div><div class="pl-floor">${this.floor(p)}</div>${this.crew(p, me)}</section><section class="pl-panel" aria-live="polite">${panel}</section></main></div>`;
-    const pn = this.el.querySelector('.pl-panel') as HTMLElement;
+    this.el.innerHTML = `<div class="pl-app pl-ph-${esc(p.phase)}">${head}<main><section class="pl-left"><div class="cap"><span>${this.K('ui.floor')}</span><span>${this.K(p.phase === 'debrief' ? 'ui.floorKeyEnd' : p.phase === 'shop' ? 'ui.floorKeyShop' : 'ui.floorKey')}</span></div><div class="pl-floor">${this.floor(p)}</div>${this.crew(p, me)}</section><section class="pl-panel" aria-live="polite">${panel}</section></main></div>`;
+    const pn = scroller()!;
     if (p.phase === 'run' || (p.phase === 'offer' && p.mid)) {
       const tgt = (pn.querySelector('.decision') || pn.querySelector('.private') || pn.querySelector('.beat.cur')) as HTMLElement | null;
       if (tgt && (newBeats || phaseChanged || p.run?.decision)) pn.scrollTop = Math.max(0, tgt.offsetTop - pn.offsetTop - 140);
       else pn.scrollTop = scroll;
     } else pn.scrollTop = scroll;
     this.lastSec = -1;
+    if (p.phase !== 'shop') this.hoverHl = this.hoverTool = '';
+    this.applyHover();
   }
 
   private header(p: any, me: Role | null) {
@@ -378,23 +388,101 @@ export class PlanView {
     return `<div class="kicker">${this.K('ph.scout.kicker')}</div>${this.factList(p)}${this.offerPanel(p)}`;
   }
 
+  /** One fact as the crew knows it: value, "(Gerücht)" or "unbekannt". */
+  private knownHtml(p: any, k: FactKey) {
+    const kn = p.known[k];
+    if (!kn) return `<b class="q">${this.K('sh.unknown')}</b>`;
+    return `<b class="${kn.rumour ? 'r' : ''}">${this.K('fact.' + k + '.' + kn.v)}${kn.rumour ? ' ' + this.K('fact.rumour') : ''}</b>`;
+  }
+
+  /**
+   * Shopping. Tools are grouped by the question they answer; every tile says in plain words what the
+   * tool does, whether it fits what the crew knows, and what it needs. All of it fits without scrolling.
+   */
   private ph_shop(p: any, me: Role | null) {
     const sel: string[] = p.board.tools;
-    const cost = sel.reduce((s, id) => s + VARGA.tools.find((t) => t.id === id)!.price, 0),
+    const tool = (id: string) => VARGA.tools.find((t) => t.id === id)!;
+    const cost = sel.reduce((s, id) => s + tool(id).price, 0),
       left = p.budget - cost;
-    let h = '';
+    let h = `<div class="shp-body"><div class="shp-head"><h2>${this.K('ph.shop.title')}</h2><p class="shp-lead">${this.K('sh.lead')}</p><div class="shp-left"><span>${this.K('sh.left')}</span><b>${eur(left)}</b></div></div>`;
+    if (p.preTraces?.length) h += p.preTraces.map((t: Txt) => `<div class="ln trace">${this.T(p, t)}</div>`).join('');
     const tip = this.priv?.tip;
     if (tip) h += `<div class="private tip"><div class="privhead">${this.K('pv.head', { who: this.ctx(p).name(this.priv.role) })}</div><div class="kicker">${this.K('pv.tipKicker')}</div><h3>${this.K('fact.' + tip.k)}</h3><p class="lead">${this.K('pv.tipText', { v: pt('fact.' + tip.k + '.' + tip.v) })}</p></div>`;
-    h += `<div class="kicker">${this.K('ph.shop.kicker')}</div><h2>${this.K('ph.shop.title')}</h2><p class="lead">${this.K('ph.shop.lead', { m: '' })}<b>${eur(left)}</b></p>`;
-    if (p.preTraces?.length) h += p.preTraces.map((t: Txt) => `<div class="ln trace">${this.T(p, t)}</div>`).join('');
-    h += this.det(this.factList(p), pt('ph.shop.known'), 'known');
-    h += '<div class="cards">' + VARGA.tools.map((t) => {
-      const on = sel.includes(t.id);
-      return this.card({ sel: on, dis: !on && t.price > left, ro: !me, data: `data-tool="${t.id}"`, title: this.K('tool.' + t.id + '.name'), text: this.K('tool.' + t.id + '.text'), px: eur(t.price), tags: t.tags.map((x) => this.K('tag.' + x)), details: pt('tool.' + t.id + '.details') ? this.K('tool.' + t.id + '.details') : '', dk: 'tl' + t.id });
-    }).join('') + '</div>';
-    h += `<p class="pl-muted small">${this.K('ui.locked')}</p>`;
-    h += me === 'brain' ? `<div class="btnrow"><button class="pl-btn pri" data-act="confirm">${this.K('ph.shop.go')}</button></div>` : this.waitBtn(p, 'brain');
-    return h;
+    const open: string[] = [],
+      unknown: string[] = [];
+    // two columns of groups: alarm + guard on the left, safe + way on the right
+    const cols = ['', ''];
+    SHOP_GROUPS.forEach((g, gi) => {
+      let h = '';
+      const cov = shopCover(p.known, sel, g.id);
+      const gname = this.K('sh.g.' + g.id);
+      // heading: what the crew knows about this question
+      const know = g.facts.map((k) => (g.facts.length === 1 && g.id !== 'way' ? `${this.K('sh.know')} ` : `${this.K('fact.' + k)}: `) + this.knownHtml(p, k)).join(' · ');
+      const covTag = cov ? `<span class="tag ${cov === 'yes' ? 'ok' : cov === 'no' ? 'bad' : cov === 'alt' ? 'acc' : ''}">${this.K('sh.cov.' + cov)}</span>` : '';
+      const main = g.facts[0];
+      if (cov === 'no') open.push(`${gname} (${this.K('fact.' + main + '.' + p.known[main].v)})`);
+      if (cov === 'unknown') unknown.push(gname);
+      let note = '';
+      const kv = (k: FactKey) => p.known[k]?.v ?? null;
+      if (g.id === 'alarm' && cov !== 'yes') note = this.K(kv('alarm') === 'tuer' ? 'sh.note.alarm.tuer' : 'sh.note.alarm');
+      if (g.id === 'safe' && cov === 'none') note = this.K('sh.note.safe.mech');
+      if (g.id === 'guard' && cov === 'none') note = this.K('sh.note.guard.rundgang');
+      if (g.id === 'guard' && kv('guard') === 'hund' && cov !== 'yes') note = this.K('sh.note.guard.hund');
+      if (g.id === 'guard' && kv('guard') === 'monitor' && cov !== 'yes' && (kv('blind') === 'liefer' || kv('blind') === 'dach')) note = this.K('sh.note.guard.blind.' + kv('blind'));
+      h += `<section class="shp-group" data-hl="${g.facts.join(' ')}"><div class="shp-gh${g.facts.length > 1 ? ' multi' : ''}"><h3>${gname}</h3><span class="shp-know">${know}</span>${covTag}</div>${note ? `<p class="shp-note">${note}</p>` : ''}<div class="shp-tiles">`;
+      for (const id of g.tools) {
+        const t = tool(id),
+          on = sel.includes(id),
+          dis = !on && t.price > left,
+          adv = toolAdvice(p.known, id);
+        const needs = [t.tags.includes('hands') ? this.K('sh.need.hands') : '', id === 'decoder' ? this.K('sh.need.brain') : '', t.tags.includes('post') ? this.K('sh.need.post') : '', t.tags.includes('loud') ? this.K('sh.loud') : '', t.tags.includes('quiet') ? this.K('sh.quiet') : ''].filter(Boolean);
+        const mark = adv.state === 'fit' ? '✓' : adv.state === 'miss' ? '✕' : adv.state === 'open' ? '?' : '•';
+        const hl = [...(adv.fact ? [adv.fact] : []), ...(id === 'seil' ? ['dach'] : []), ...(id === 'schleife' ? ['blind'] : []), ...(id === 'scanner' ? ['police'] : [])].join(' ');
+        // a tool the crew knows to be useless shrinks to one line (still buyable; a rumour keeps the full tile)
+        const slim = adv.state === 'miss' && !adv.rumour && !on;
+        h += `<button type="button" class="shp-tile ${adv.state}${adv.rumour ? ' rum' : ''}${slim ? ' slim' : ''}${on ? ' sel' : ''}${dis ? ' dis' : ''}${me ? '' : ' ro'}" data-tool="${id}" data-hl="${hl}" aria-pressed="${on}"${dis || !me ? ' aria-disabled="true"' : ''}>`;
+        const fit = `<span class="shp-fit"><i>${mark}</i>${this.T(p, adv.text)}</span>`;
+        h += `<span class="shp-th"><b>${this.K('tool.' + id + '.name')}</b>${slim ? fit : ''}<span class="px">${dis ? `<small>${this.K('sh.tooDear')}</small> ` : ''}${eur(t.price)}</span></span>`;
+        if (!slim) {
+          h += `<span class="shp-tx">${this.K('tool.' + id + '.text')}</span>${fit}`;
+          if (needs.length) h += `<span class="shp-need">${needs.join(' · ')}</span>`;
+        }
+        h += '</button>';
+      }
+      cols[gi % 2] += h + '</div></section>';
+    });
+    h += `<div class="shp-cols"><div class="shp-col">${cols[0]}</div><div class="shp-col">${cols[1]}</div></div>`;
+    // footer: the exact numbers of the tool under the mouse, what the basket leaves open, and the button
+    const idle = `${this.K('sh.hover')} ${this.K('ui.locked')}`;
+    h += `</div><div class="shp-foot"><p class="shp-info" data-default="${idle}">${idle}</p>`;
+    h += `<div class="shp-bar"><p class="shp-sum"><span>${sel.length ? this.K('sh.basket', { n: sel.length, m: eur(cost) }) : this.K('sh.basket0')}</span>`;
+    if (open.length) h += `<span class="bad">${this.K('sh.open')} ${open.join(' · ')}</span>`;
+    else if (!unknown.length) h += `<span class="ok">${this.K('sh.allCovered')}</span>`;
+    if (unknown.length) h += `<span class="q">${this.K('sh.unknownList')} ${unknown.join(' · ')}</span>`;
+    h += '</p>';
+    h += me === 'brain' ? `<button class="pl-btn pri" data-act="confirm">${this.K('ph.shop.go')}</button>` : this.waitBtn(p, 'brain');
+    return h + '</div></div>';
+  }
+
+  /** Shop only: light up on the floor plan what the tool under the mouse is about, and show its exact numbers. */
+  private onHover(target: HTMLElement | null) {
+    const hlEl = target?.closest?.('[data-hl]') as HTMLElement | null;
+    const toolEl = target?.closest?.('[data-tool]') as HTMLElement | null;
+    const hl = hlEl?.dataset.hl ?? '',
+      tool = toolEl?.dataset.tool ?? '';
+    if (hl === this.hoverHl && tool === this.hoverTool) return;
+    this.hoverHl = hl;
+    this.hoverTool = tool;
+    this.applyHover();
+  }
+  private applyHover() {
+    const keys = this.hoverHl ? this.hoverHl.split(' ') : [];
+    this.el.querySelectorAll('.bp-badge[data-fk], .bp-ent[data-fk]').forEach((b) => b.classList.toggle('hl', keys.includes(b.getAttribute('data-fk')!)));
+    const info = this.el.querySelector('.shp-info') as HTMLElement | null;
+    if (!info) return;
+    const d = this.hoverTool ? pt('tool.' + this.hoverTool + '.details', undefined, this.lang()) : '';
+    info.textContent = this.hoverTool && d ? `${pt('tool.' + this.hoverTool + '.name', undefined, this.lang())}: ${d}` : (info.dataset.default ?? '');
+    info.classList.toggle('on', !!(this.hoverTool && d));
   }
 
   private ph_plan(p: any, me: Role | null) {
@@ -519,12 +607,16 @@ export class PlanView {
     const end = p.phase === 'debrief' && p.result;
     const facts = end ? p.result.facts : null;
     const fs = 13;
-    const badge = (x: number, y: number, text: string, cls: string, anchor?: string) => {
+    // shop: a tick on every obstacle the basket has an answer for
+    const basket: string[] | null = p.phase === 'shop' ? p.board.tools : null;
+    const covered = (g: ShopGroupId) => !!basket && shopCover(p.known, basket, g) === 'yes';
+    const badge = (x: number, y: number, text: string, cls: string, anchor?: string, fk?: string, cov?: boolean) => {
+      if (cov) text = '✓ ' + text;
       const w = Math.max(fs * 2, text.length * fs * 0.58 + 12),
         hh = fs + 9;
       let x0 = anchor === 'end' ? x - w : anchor === 'mid' ? x - w / 2 : x;
       x0 = Math.max(2, Math.min(638 - w, x0));
-      return `<g class="bp-badge ${cls}"><rect x="${x0}" y="${y - hh / 2 - 2}" width="${w}" height="${hh}" rx="2"/><text x="${x0 + w / 2}" y="${y + fs * 0.35 - 2}" text-anchor="middle">${esc(text)}</text></g>`;
+      return `<g class="bp-badge ${cls}${cov ? ' cov' : ''}"${fk ? ` data-fk="${fk}"` : ''}><rect x="${x0}" y="${y - hh / 2 - 2}" width="${w}" height="${hh}" rx="2"/><text x="${x0 + w / 2}" y="${y + fs * 0.35 - 2}" text-anchor="middle">${esc(text)}</text></g>`;
     };
     const factBadge = (k: string, short: (v: string) => string, ql: string) => {
       const kn = p.known[k];
@@ -562,16 +654,16 @@ export class PlanView {
     const ent = (id: string) => 'bp-ent' + (P && planShown && P.entrance === id ? ' sel' : '');
     s += `<rect class="${ent('vorder')}" x="165" y="394" width="44" height="12"/>` + L(216, 418, pt('en.vorder.name', undefined, this.lang()), 'bp-sm');
     s += `<rect class="${ent('liefer')}" x="474" y="280" width="12" height="44"/>` + L(492, 300, pt('en.liefer.name', undefined, this.lang()), 'bp-sm');
-    s += `<rect class="${ent('dach')}" x="270" y="262" width="34" height="34" stroke-dasharray="4 3"/>` + L(262, 312, pt('en.dach.name', undefined, this.lang()), 'bp-sm');
+    s += `<rect class="${ent('dach')}" data-fk="dach" x="270" y="262" width="34" height="34" stroke-dasharray="4 3"/>` + L(262, 312, pt('en.dach.name', undefined, this.lang()), 'bp-sm');
     const short = (k: string) => (v: string) => lab(k + '.' + v);
     let b = factBadge('alarm', short('alarm'), '');
-    s += badge(474, 388, b.cls === 'q' ? lab('alarmQ') : b.text, b.cls, 'end');
+    s += badge(474, 388, b.cls === 'q' ? lab('alarmQ') : b.text, b.cls, 'end', 'alarm', covered('alarm'));
     b = factBadge('guard', short('guard'), '');
-    s += badge(52, 92, b.cls === 'q' ? lab('guardQ') : b.text, b.cls);
+    s += badge(52, 92, b.cls === 'q' ? lab('guardQ') : b.text, b.cls, undefined, 'guard', covered('guard'));
     b = factBadge('safe', short('safe'), '');
-    s += badge(405, 160, b.cls === 'q' ? lab('safeQ') : b.text, b.cls, 'mid');
+    s += badge(405, 160, b.cls === 'q' ? lab('safeQ') : b.text, b.cls, 'mid', 'safe', covered('safe'));
     b = factBadge('police', short('police'), '');
-    s += badge(24, 448, pt('fp.police', { v: b.text }, this.lang()), b.cls);
+    s += badge(24, 448, pt('fp.police', { v: b.text }, this.lang()), b.cls, undefined, 'police');
     const lb = factBadge('loot', (v) => v, '');
     const pos: Record<string, [number, number]> = { tresor: [476, 80], vitrinen: [320, 214], lager: [476, 214] };
     for (const t of ['tresor', 'vitrinen', 'lager']) {
@@ -594,7 +686,7 @@ export class PlanView {
         labx = lab('cam');
         cls = bb.cls === 'x' ? '' : bb.cls;
       }
-      s += badge(x, y - 6, labx, cls, 'mid');
+      s += badge(x, y - 6, labx, cls, 'mid', 'blind');
     }
     if (P && planShown) {
       const ep: Record<string, number[]> = { vorder: [187, 394], liefer: [474, 302], dach: [287, 279] },

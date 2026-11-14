@@ -600,6 +600,102 @@ export function planSummary(S: Game) {
   return { lines, risks, errors: validatePlan(S) };
 }
 
+// ---------------------------------------------------------------- shopping advice
+// What each tool is for, read against what the crew knows. Everything here works on the
+// replicated `known` and the tool list alone, so every client computes it for itself:
+// nothing hidden goes in, nothing hidden comes out. It only does the cross-reading that
+// the crew would otherwise do by hand ("we know: time lock" -> "the decoder is useless").
+export type ToolFit = 'fit' | 'miss' | 'open' | 'any';
+export type ShopGroupId = 'alarm' | 'safe' | 'guard' | 'way';
+export type KnownPub = Partial<Record<FactKey, { v: string; rumour: boolean } | null | undefined>>;
+/** The shop, grouped by the question a tool answers. `facts` are shown in the group's heading. */
+export const SHOP_GROUPS: { id: ShopGroupId; facts: FactKey[]; tools: string[] }[] = [
+  { id: 'alarm', facts: ['alarm'], tools: ['magnet', 'schaum', 'stoer'] },
+  { id: 'safe', facts: ['safe'], tools: ['decoder', 'bohrer'] },
+  { id: 'guard', facts: ['guard', 'blind'], tools: ['leckerli', 'schleife'] },
+  { id: 'way', facts: ['police'], tools: ['seil', 'zweitwagen', 'scanner'] },
+];
+/** Tools that answer exactly one value of one fact. */
+const TOOL_ANSWERS: Record<string, { fact: FactKey; v: string }> = {
+  magnet: { fact: 'alarm', v: 'tuer' },
+  schaum: { fact: 'alarm', v: 'bewegung' },
+  stoer: { fact: 'alarm', v: 'still' },
+  decoder: { fact: 'safe', v: 'elek' },
+  leckerli: { fact: 'guard', v: 'hund' },
+  schleife: { fact: 'guard', v: 'monitor' },
+};
+export interface ToolAdvice {
+  state: ToolFit;
+  /** the fact this advice was read from, null if it depends on none; `rumour` is that fact's */
+  fact: FactKey | null;
+  rumour: boolean;
+  /** text key plus parameters, rendered by texts.ts */
+  text: Txt;
+}
+/** One line of plain advice for a tool: does it fit what we know? */
+export function toolAdvice(known: KnownPub, id: string): ToolAdvice {
+  const kn = (k: FactKey) => known[k] || null;
+  const val = (k: FactKey): Txt => T('fact.' + k + '.' + kn(k)!.v);
+  if (id === 'bohrer') {
+    const sf = kn('safe');
+    if (!sf) return { state: 'any', fact: 'safe', rumour: false, text: T('fit.bohrer.open') };
+    return { state: 'fit', fact: 'safe', rumour: sf.rumour, text: T('fit.bohrer.' + sf.v + (sf.rumour ? '.r' : '')) };
+  }
+  if (id === 'seil') {
+    const bl = kn('blind');
+    if (bl && bl.v === 'dach') return { state: 'fit', fact: 'blind', rumour: bl.rumour, text: T(bl.rumour ? 'fit.seil.blind.r' : 'fit.seil.blind') };
+    return { state: 'any', fact: null, rumour: false, text: T('fit.seil.any') };
+  }
+  // these two help whatever the crew knows: the advice is read from no fact
+  if (id === 'zweitwagen' || id === 'scanner') return { state: 'any', fact: null, rumour: false, text: T('fit.' + id + '.any') };
+  const a = TOOL_ANSWERS[id];
+  if (!a) return { state: 'any', fact: null, rumour: false, text: T('fit.any') };
+  const k = kn(a.fact);
+  if (!k) return { state: 'open', fact: a.fact, rumour: false, text: T('fit.open', { k: T('fact.' + a.fact) }) };
+  if (k.v === a.v) {
+    // the camera loop is pointless at an entrance no camera sees
+    const bl = id === 'schleife' ? kn('blind') : null;
+    const own = id === 'decoder' || id === 'schleife' ? 'fit.' + id + '.yes' : 'fit.yes';
+    return { state: 'fit', fact: a.fact, rumour: k.rumour, text: T(own + (k.rumour ? '.r' : ''), { v: val(a.fact), b: bl && bl.v !== 'keiner' ? T('fit.schleife.blind', { v: T('fact.blind.' + bl.v) }) : '' }) };
+  }
+  if (id === 'schleife') return { state: 'any', fact: a.fact, rumour: k.rumour, text: T('fit.schleife.other' + (k.rumour ? '.r' : ''), { v: val(a.fact) }) };
+  return { state: 'miss', fact: a.fact, rumour: k.rumour, text: T(k.rumour ? 'fit.no.r' : 'fit.no', { v: val(a.fact) }) };
+}
+export type Cover = 'yes' | 'alt' | 'no' | 'none' | 'unknown';
+/**
+ * Is the known obstacle of a group answered by the tools in the basket?
+ * `none` = it needs no tool; `alt` = no tool against it, but the crew has a way around it (another entrance).
+ */
+export function shopCover(known: KnownPub, tools: string[], g: ShopGroupId): Cover | null {
+  const hasT = (id: string) => tools.indexOf(id) >= 0;
+  const v = (k: FactKey) => (known[k] ? known[k]!.v : null);
+  if (g === 'alarm') {
+    const al = v('alarm');
+    if (!al) return 'unknown';
+    if (hasT(al === 'tuer' ? 'magnet' : al === 'bewegung' ? 'schaum' : 'stoer')) return 'yes';
+    // the roof hatch has no door contact
+    return al === 'tuer' && hasT('seil') ? 'alt' : 'no';
+  }
+  if (g === 'safe') {
+    const sf = v('safe');
+    if (hasT('bohrer')) return 'yes';
+    if (!sf) return 'unknown';
+    if (sf === 'mech') return 'none';
+    return sf === 'elek' && hasT('decoder') ? 'yes' : 'no';
+  }
+  if (g === 'guard') {
+    const gd = v('guard');
+    if (!gd) return 'unknown';
+    if (gd === 'rundgang') return 'none';
+    if (hasT(gd === 'hund' ? 'leckerli' : 'schleife')) return 'yes';
+    // the dog only matters in the yard; the monitor room does not see an entrance in the blind spot
+    if (gd === 'hund') return 'alt';
+    const bl = v('blind');
+    return bl === 'liefer' || (bl === 'dach' && hasT('seil')) ? 'alt' : 'no';
+  }
+  return null;
+}
+
 export function estimateTime(S: Game): [number, number] {
   const P = S.plan,
     J = S.job;
