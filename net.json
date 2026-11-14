@@ -1,0 +1,12 @@
+{
+  "iceServers": [
+    {
+      "urls": [
+        "turn:167.233.92.27:3478?transport=udp",
+        "turn:167.233.92.27:3478?transport=tcp"
+      ],
+      "username": "heist",
+      "credential": "df6b01fa842ec75d7acc5b43"
+    }
+  ]
+}
