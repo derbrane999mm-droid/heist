@@ -9,9 +9,8 @@ import { existsSync } from 'node:fs';
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 export const OUT = path.join(root, 'test-out');
 
-/** Local Chrome. NV_CHROME overrides the path. */
-function chromePath() {
-  if (process.env.NV_CHROME) return process.env.NV_CHROME;
+/** An installed full browser, for NV_HEADED=1 (watching a test needs a real window). */
+function localBrowser() {
   const candidates = {
     darwin: [
       '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
@@ -24,8 +23,28 @@ function chromePath() {
     ],
   }[process.platform] ?? ['/usr/bin/google-chrome', '/usr/bin/chromium', '/usr/bin/chromium-browser'];
   const found = candidates.find((p) => existsSync(p));
-  if (!found) throw new Error('No Chrome found. Set NV_CHROME to the browser executable.');
+  if (!found) throw new Error('No browser found. Set NV_CHROME to the browser executable.');
   return found;
+}
+
+/**
+ * Which browser runs the tests. Default: Playwright's own headless shell, a plain program that is not
+ * the user's Chrome. Starting the installed Chrome headless made macOS treat every test run as "Chrome
+ * was activated" and jump to the desktop with the user's Chrome windows. One-time install:
+ *   npx playwright-core install chromium-headless-shell
+ * NV_CHROME=<path> picks another browser, NV_HEADED=1 shows the windows (uses the installed browser).
+ */
+async function launchBrowser(args) {
+  const headed = !!process.env.NV_HEADED;
+  const exe = process.env.NV_CHROME || (headed ? localBrowser() : undefined);
+  try {
+    return await chromium.launch({ ...(exe ? { executablePath: exe } : {}), headless: !headed, args });
+  } catch (e) {
+    if (!exe && /Executable doesn't exist|playwright install/i.test(String(e?.message))) {
+      throw new Error('The test browser is not installed. Run once: npx playwright-core install chromium-headless-shell');
+    }
+    throw e;
+  }
 }
 
 /** Real GPU by default. NV_SOFTWARE=1 forces software rendering (machines without a GPU). */
@@ -46,20 +65,18 @@ export async function startServers({ port = 5188, sigPort = 9010 } = {}) {
       // same moment do not rewrite one shared cache.
       await createServer({ root, cacheDir: path.join(root, 'node_modules', '.vite-test', String(port)), server: { port, host: '127.0.0.1', strictPort: true, hmr: false, watch: null }, logLevel: 'error' });
   if (!process.env.NV_DIST) await vite.listen();
-  const browser = await chromium.launch({
-    executablePath: chromePath(),
-    headless: !process.env.NV_HEADED,
-    args: [
-      ...gpuArgs(),
-      '--use-fake-ui-for-media-stream',
-      '--use-fake-device-for-media-stream',
-      '--disable-features=WebRtcHideLocalIpsWithMdns',
-      '--autoplay-policy=no-user-gesture-required',
-      '--disable-background-timer-throttling',
-      '--disable-renderer-backgrounding',
-      '--disable-backgrounding-occluded-windows',
-    ],
-  });
+  const browser = await launchBrowser([
+    ...gpuArgs(),
+    '--use-fake-ui-for-media-stream',
+    '--use-fake-device-for-media-stream',
+    '--disable-features=WebRtcHideLocalIpsWithMdns',
+    // test players on one machine reach each other over loopback, whatever the network (VPN, no Wi-Fi) looks like
+    '--allow-loopback-in-peer-connection',
+    '--autoplay-policy=no-user-gesture-required',
+    '--disable-background-timer-throttling',
+    '--disable-renderer-backgrounding',
+    '--disable-backgrounding-occluded-windows',
+  ]);
   const base = `http://127.0.0.1:${port}/?signal=local&sigport=${sigPort}`;
   return {
     browser,
@@ -74,7 +91,9 @@ export async function startServers({ port = 5188, sigPort = 9010 } = {}) {
 
 /** Open the game in a fresh browser context (own storage = own player). */
 export async function openPlayer(env, { name, quality = 'low', lang = 'en', width = 1280, height = 720, extra = '', noPause = true, renderSkip = 0, lineupFast = false } = {}) {
-  const ctx = await env.browser.newContext({ viewport: { width, height } });
+  // Microphone permission: voice chat starts without a prompt, and with it the browser offers every network
+  // interface (including loopback) to peer connections instead of the default route only.
+  const ctx = await env.browser.newContext({ viewport: { width, height }, permissions: ['microphone'] });
   await ctx.addInitScript(
     ([name, quality, lang, noPause, renderSkip, lineupFast]) => {
       localStorage.setItem('nullvault.settings.v1', JSON.stringify({ name, quality, lang, color: Math.floor(Math.random() * 6), music: 0.2 }));
