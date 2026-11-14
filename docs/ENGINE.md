@@ -127,7 +127,7 @@ Tests: `node tests/plan-logic.mjs` (rules, balance, privacy of the public view),
 
 - `npx tsc --noEmit` must be clean, `npm run build` must succeed.
 - Browser tests: copy the pattern in tests/lineup.mjs. `startServers({ port, sigPort })` (use your own ports), `openPlayer(env, { name, quality: 'low', width: 420, height: 240, renderSkip: 12, extra: '&level=<name>' })`, then drive the game through `window.__nv` (`start(code)`, `tp(x, y, z, yaw, pitch)`, `input.debugSet(code, down)`, `interactions.debugUse(id)`, `session`, `player`, `level`).
-- The harness launches the local Chrome with the real GPU (see CLAUDE.md for `NV_CHROME`, `NV_SOFTWARE`, `NV_HEADED`). Tests may run in parallel as long as each uses its own ports. After waiting for a state change on the host, wait for the page you check as well: on a fast machine a client has not redrawn yet.
+- The harness launches the local Chrome with the real GPU (see CLAUDE.md for `NV_CHROME`, `NV_SOFTWARE`, `NV_HEADED`). Tests may run in parallel as long as each uses its own ports, also while someone edits `src/`: the test server has no file watcher and no hot reload, so a test always runs the code as it was when its pages loaded. After waiting for a state change on the host, wait for the page you check as well: on a fast machine a client has not redrawn yet.
 - Look at your level: `node tests/shots.mjs medium` style screenshots into `test-out/`, then open the PNG.
 
 ## Calibration samples (`calib-*` levels)

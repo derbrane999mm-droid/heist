@@ -41,7 +41,10 @@ export async function startServers({ port = 5188, sigPort = 9010 } = {}) {
   // NV_DIST=1 tests the production build in dist/ instead of the dev server
   const vite = process.env.NV_DIST
     ? await preview({ root, preview: { port, host: '127.0.0.1', strictPort: true }, logLevel: 'error' })
-    : await createServer({ root, server: { port, host: '127.0.0.1', strictPort: true }, logLevel: 'error' });
+    : // No file watcher and no hot reload: a source file edited while a test runs (by a person or by another
+      // agent) must not reload the test's pages. Own dependency cache per port, so servers started at the
+      // same moment do not rewrite one shared cache.
+      await createServer({ root, cacheDir: path.join(root, 'node_modules', '.vite-test', String(port)), server: { port, host: '127.0.0.1', strictPort: true, hmr: false, watch: null }, logLevel: 'error' });
   if (!process.env.NV_DIST) await vite.listen();
   const browser = await chromium.launch({
     executablePath: chromePath(),

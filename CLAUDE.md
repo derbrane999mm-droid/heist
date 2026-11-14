@@ -10,7 +10,7 @@ Online co-op heist game for four friends, played in the browser. Built for Mert,
 - Small steps: build a little, show him something he can look at (local preview, picture, link), get his verdict, continue. Never build a whole block before the first example.
 - For taste decisions ask a few short tap-to-answer questions. Technical decisions are yours.
 - Larger answers end with a separate status block: `Erledigt` / `Offen` / `Nächster Schritt` / `Braucht deine Entscheidung`.
-- Keep token use lean: cheaper models for sub-tasks that do not need the top model, parallel agents for independent parts.
+- Keep token use lean (Mert's rule, 2026-11-14): the top model steers, decides and reviews. Building and testing go to cheaper models (Sonnet, Opus) as agents, in parallel wherever parts are independent. Do not run everything in one line on the top model, and get help when stuck.
 - Check that a new approach works before building on it.
 - Be honest about limits. He measures against big commercial games; say plainly what this game can and cannot be.
 
@@ -41,7 +41,7 @@ node tests/e2e.mjs            # big 4-player run of the old foundation (browser)
 ./scripts/deploy.sh  # build and force-push dist/ to gh-pages (the public site)
 ```
 
-`NV_DIST=1` in front of a browser test runs it against the production build. `tests/harness.mjs` finds the local Chrome and uses the real GPU; browser tests may run in parallel (each has its own ports). `NV_CHROME=<path>` picks another browser, `NV_SOFTWARE=1` forces software rendering (machines without a GPU), `NV_HEADED=1` shows the windows.
+`NV_DIST=1` in front of a browser test runs it against the production build. `tests/harness.mjs` finds the local Chrome and uses the real GPU; browser tests may run in parallel (each has its own ports) and keep running while source files are edited (the test server does not watch files or hot-reload). `NV_CHROME=<path>` picks another browser, `NV_SOFTWARE=1` forces software rendering (machines without a GPU), `NV_HEADED=1` shows the windows.
 
 ## Hard rules (each caused a visible bug)
 
