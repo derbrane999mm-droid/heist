@@ -183,6 +183,9 @@ export class Voice {
     };
     call.on('close', lost);
     call.on('error', lost);
+    // A call answered before the roster knew its player is wired late; its stream may already have
+    // arrived, and that event is gone. Without this the player stays unheard until a rejoin.
+    if (call.remoteStream && !this.disposed) this.attach(r, call.remoteStream);
   }
 
   private attach(r: Remote, stream: MediaStream) {

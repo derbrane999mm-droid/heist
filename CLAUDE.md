@@ -43,7 +43,7 @@ node tests/e2e.mjs            # big 4-player run of the old foundation (browser)
 ./scripts/deploy.sh  # build and force-push dist/ to gh-pages (the public site)
 ```
 
-`NV_DIST=1` in front of a browser test runs it against the production build. The tests run in Playwright's headless shell with the real GPU, never in the installed Chrome (started headless, it made macOS jump to the desktop with Mert's Chrome windows on every run). They may run in parallel (each has its own ports) and keep running while source files are edited (the test server does not watch files or hot-reload). `NV_HEADED=1` shows the windows (uses the installed browser), `NV_CHROME=<path>` picks a browser, `NV_SOFTWARE=1` forces software rendering. Known gap: the two voice-mesh checks of `tests/e2e.mjs` fail in the headless shell (not investigated yet).
+`NV_DIST=1` in front of a browser test runs it against the production build. The tests run in Playwright's headless shell with the real GPU, never in the installed Chrome (started headless, it made macOS jump to the desktop with Mert's Chrome windows on every run). They may run in parallel (each has its own ports) and keep running while source files are edited (the test server does not watch files or hot-reload). `NV_HEADED=1` shows the windows (uses the installed browser), `NV_CHROME=<path>` picks a browser, `NV_SOFTWARE=1` forces software rendering.
 
 ## Showing Mert a change
 
