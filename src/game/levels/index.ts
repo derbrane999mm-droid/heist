@@ -6,11 +6,13 @@ import { createCalibHack } from './calib-hack';
 import { createCalibRange } from './calib-range';
 
 import { createCasino } from './casino';
+import { createHq } from './hq';
 export const LEVELS: Record<string, (deps: LevelDeps) => Level> = {
   hideout: createHideout,
   hack: createCalibHack,
   range: createCalibRange,
   casino: createCasino,
+  hq: createHq,
 };
 
 /** Props (public/assets/models/<name>.glb) a level needs loaded before it is built. */
