@@ -833,7 +833,15 @@ export function buildVargaInterior(b: Builder, deps: LevelDeps, opts: VargaInter
 
   // ---------------------------------------------------------------- floor + collision slab
   b.collider(-11, F / 2, -4.1, 22, F, 18);
-  for (const r of Object.values(ROOMS)) bx(r.f.floor, r.x1 - r.x0, 0.06, r.z1 - r.z0, (r.x0 + r.x1) / 2, F - 0.03, (r.z0 + r.z1) / 2, N);
+  // finishes run to the partition centre lines but stop at the outer walls' inner faces
+  // (the exterior's door sills sit exactly at floor height and must not z-fight)
+  for (const r of Object.values(ROOMS)) {
+    const x0 = r.x0 === OUT.x0 ? OUT.x0 + 0.3 : r.x0;
+    const x1 = r.x1 === OUT.x1 ? OUT.x1 - 0.3 : r.x1;
+    const z0 = r.z0 === OUT.z0 ? OUT.z0 + 0.3 : r.z0;
+    const z1 = r.z1 === OUT.z1 ? OUT.z1 - 0.3 : r.z1;
+    bx(r.f.floor, x1 - x0, 0.06, z1 - z0, (x0 + x1) / 2, F - 0.03, (z0 + z1) / 2, N);
+  }
   // thresholds in the doorways
   for (const o of OPEN.slice(0, 6)) {
     const len = o.a1 - o.a0;
@@ -885,6 +893,7 @@ export function buildVargaInterior(b: Builder, deps: LevelDeps, opts: VargaInter
     wallLine(sh, 'z', -13.1, -12.95, 0.3, -22, 0, ROOF + 0.2, 0);
     bx(sh, 22, 0.2, 18, -11, ROOF + 0.1, -4.1);
     bx(sh, 0.3, F, 2.2, -0.15, F / 2, 0); // delivery sill
+    bx(sh, 2.2, F - 0.01, 0.3, FD_X, (F - 0.01) / 2, 4.75); // front door sill
   }
 
   // ---------------------------------------------------------------- linings (per room side)
