@@ -1309,7 +1309,14 @@ export function createHq(deps: LevelDeps): Level {
   const look = new THREE.Vector3();
   return {
     spawn(index) {
-      return { pos: new THREE.Vector3(0.75 + (index % 4) * 0.62, 0, 3.7), yaw: -0.15 };
+      // in the hallway, looking through the open doorway (x 2.3) into the main room
+      const p = [
+        [2.3, 3.55],
+        [1.65, 3.8],
+        [2.95, 3.8],
+        [2.3, 4.15],
+      ][index % 4];
+      return { pos: new THREE.Vector3(p[0], 0, p[1]), yaw: Math.atan2(p[0] - 2.1, p[1] - 0.6) };
     },
     menuCamera(time, cam) {
       const w = (Math.PI * 2) / 52;

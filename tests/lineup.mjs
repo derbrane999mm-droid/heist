@@ -24,7 +24,7 @@ const use = (page, id, hold) => page.evaluate(([id, hold]) => window.__nv.intera
 const ROLES = ['brain', 'gambler', 'hands', 'bait'];
 
 const env = await startServers({ port: 5191, sigPort: 9013 });
-const opt = { width: 420, height: 240, quality: 'low', renderSkip: 12, lineupFast: true };
+const opt = { width: 420, height: 240, quality: 'low', renderSkip: 12, lineupFast: true, extra: '&level=hideout' }; // the lineup gating lives in the old hub
 try {
   const host = await openPlayer(env, { ...opt, name: 'Host' });
   await host.evaluate(() => window.__nv.start(null));

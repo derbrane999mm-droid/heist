@@ -22,7 +22,7 @@ const roster = (page) => page.evaluate(() => (window.__nv.session ? [...window._
 const use = (page, id, hold) => page.evaluate(([id, hold]) => window.__nv.interactions.debugUse(id, hold), [id, hold]);
 
 const env = await startServers({ port: 5189, sigPort: 9011 });
-const opt = { width: 480, height: 270, quality: 'low', renderSkip: 8, lineupFast: true };
+const opt = { width: 480, height: 270, quality: 'low', renderSkip: 8, lineupFast: true, extra: '&level=hideout' }; // covers the old hub
 try {
   // ---- host
   const host = await openPlayer(env, { ...opt, name: 'Host' });

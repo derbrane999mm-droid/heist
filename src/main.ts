@@ -19,6 +19,8 @@ import { Voice } from './net/voice';
 import { UI, type CrewRow } from './ui/ui';
 import { LineupView, installLineupHost, roleOf } from './game/lineup';
 import { resetCampaign } from './core/save';
+import { PlanController } from './game/plan/host';
+import { PlanView } from './game/plan/view';
 
 type Mode = 'menu' | 'playing';
 
@@ -87,6 +89,8 @@ async function boot() {
   await initRealMats(Math.min(8, engine.renderer.capabilities.getMaxAnisotropy()));
   const interactions = new Interactions(physics, input);
   const lineupView = new LineupView(document.getElementById('ui')!, input, audio, ui);
+  const plan = new PlanController();
+  const planView = new PlanView(document.getElementById('ui')!, input, audio, () => player);
   // Every light that can ever exist is created now. The number of lights is part
   // of each compiled shader, so adding one later would recompile everything.
   const flashlight = Player.createFlashlight(engine);
@@ -107,7 +111,7 @@ async function boot() {
   const levelName = q.get('level') ?? 'hq';
   await preloadModels(LEVEL_MODELS[levelName] ?? []);
   const options = Object.fromEntries(q.entries());
-  level = (LEVELS[levelName] ?? LEVELS.hideout)({ engine, physics, audio, mats, interactions, input, ui, player: () => player, options });
+  level = (LEVELS[levelName] ?? LEVELS.hideout)({ engine, physics, audio, mats, interactions, input, ui, player: () => player, options, plan });
 
   await texturesReady();
   // compile everything behind the loading screen (including a crew member's suit)
@@ -203,6 +207,9 @@ async function boot() {
     level.attach(s);
     if (s.isHost) installLineupHost(s);
     lineupView.attach(s);
+    plan.attach(s);
+    planView.attach(s);
+    if (q.get('plan') === '1' && s.isHost) window.setTimeout(() => plan.start(), 1500);
     syncCrew();
 
     mode = 'playing';
@@ -214,7 +221,7 @@ async function boot() {
     const locked = await input.lock();
     if (!locked || !input.locked) {
       window.setTimeout(() => {
-        if (mode === 'playing' && !input.locked && !(window as any).__nvNoPause) ui.showMenu('pause');
+        if (mode === 'playing' && !input.locked && !(window as any).__nvNoPause && !planView.isOpen()) ui.showMenu('pause');
       }, 250);
     }
   }
@@ -248,6 +255,8 @@ async function boot() {
   function leave() {
     if (!session) return;
     lineupView.detach();
+    planView.detach();
+    plan.detach();
     level.detach();
     voice?.dispose();
     voice = null;
@@ -284,7 +293,7 @@ async function boot() {
   input.onLockChange = (locked) => {
     if (mode !== 'playing') return;
     if (!locked) {
-      if (!(window as any).__nvNoPause) ui.showMenu('pause');
+      if (!(window as any).__nvNoPause && !planView.isOpen()) ui.showMenu('pause');
     } else ui.showMenu('none');
   };
 
@@ -311,12 +320,13 @@ async function boot() {
       viewmodel.update(dt, player!, interactions, physics);
       ui.setPrompt(interactions.promptText);
       lineupView.update();
+      planView.update();
 
       if (input.justPressed('mute')) {
         settings.set('micMuted', !settings.get('micMuted'));
         audio.play('ui');
       }
-      voice?.setTalkHeld(input.held('talk'));
+      voice?.setTalkHeld(input.held('talk') || planView.talkHeld());
     } else {
       level.menuCamera(time, engine.camera);
       input.consumeMouse();
@@ -388,6 +398,7 @@ async function boot() {
     leave,
     level,
     lineupView,
+    plan: { start: () => plan.start(), running: () => plan.running(), controller: plan, view: planView },
     missingTranslations,
     /** Teleport the local player (tests and screenshots). */
     tp(x: number, y: number, z: number, yaw = 0, pitch = 0) {

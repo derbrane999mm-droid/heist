@@ -4,7 +4,7 @@ import { t, onLangChange } from '../core/i18n';
 import { settings, PLAYER_COLORS, type QualityName, type Settings } from '../core/settings';
 import type { MicState } from '../net/voice';
 
-export const VERSION = '0.3.0';
+export const VERSION = '0.4.0';
 /** Working title of the game, per language. Change it here (and in the <title> of index.html, which shows before the
  *  script runs): the menu, the loading screen and the browser tab use it. */
 export const GAME_TITLE = { en: 'THE JOB', de: 'DER COUP' } as const;

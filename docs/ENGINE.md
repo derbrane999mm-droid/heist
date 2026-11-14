@@ -21,6 +21,7 @@ src/game/player.ts          first-person controller
 src/game/avatar.ts          remote players
 src/game/interact.ts        "look at it, press E" interactions
 src/game/lineup.ts          role voting, roleOf/holder/mayAct
+src/game/plan/              the planning round (one job: stake, scouting, plan, run, debrief)
 src/game/level.ts           Level + LevelDeps interfaces
 src/game/levels/index.ts    level registry (name -> factory)
 src/game/levels/hideout.ts  the hub: a complete worked example
@@ -94,6 +95,21 @@ Roles: `mayAct(session, 'brain' | 'gambler' | 'hands' | 'bait')` is true if I ho
 - HUD pieces of a mechanic are their own DOM under `#ui`, built with `h()` from ui.ts, with their own CSS file imported by the module. Do not edit ui.ts or styles.css for a mechanic.
 - All player-facing text goes through `t(key)`. Modules add strings with `registerStrings(en, de)` at import time: both languages, same keys. `ui.say(key)` shows a subtitle, `ui.toast(text)`.
 - Sound: `audio.play(name, { pos, vol, rate })` for built-ins. For new sounds use the public synth helpers `audio.out(opts, vol)`, `audio.tone(dest, type, f0, f1, t0, dur, peak)`, `audio.burst(dest, filterType, freq, q, t0, dur, peak)` with `audio.ctx.currentTime`. Check `audio.ready` first.
+
+## The planning round (src/game/plan)
+
+One job against the "Auktionshaus Varga", ported from the approved single-player prototype. Rules, texts and look are fixed; change them only with the owner.
+
+- `logic.ts` (no DOM, no imports): the prototype's rules (`newGame`, `doScout`, `buy`, `runJob` generator, `settle`, `accuse`, same random-number order, so `tests/plan-logic.mjs` reproduces the prototype's balance exactly) and `PlanMachine`, the host-side step machine for 1-4 humans. The machine owns everything; `pub()` is the only replicated view (no hidden facts, no offers before the debrief), `priv(role)` is one player's private view (his offer, his tip, his accusation). Seats without a human are played by bots after a short delay; every phase has a deadline and a default.
+- `host.ts` (`PlanController`): runs the machine on the host, replicates `pub()` as state `plan`, sends `priv` with `session.sendTo(pid, 'plan.priv', …)` (host to one player only; `session.onPrivate` on the receiver). Players answer with the intent `plan.act`, which only the host sees. `start()` runs the lineup first if a crew of 2+ has no roles; a solo player is the Wortführer.
+- `view.ts` + `plan.css`: the overlay. Frees the pointer, freezes the player, keeps push-to-talk working (`talkHeld()`), shows who decides and the timer.
+- `texts.ts`: every plan text, keyed. The logic emits `{ k, p }` (key + parameters; `{ r: role }` = that seat's name, `{ e: n }` = money), each client renders in its own language. German only for now; English falls back to German. Not part of i18n.ts.
+
+Who decides: stake = Zocker (`gambler`); scouting, shopping, entrance and targets = shared board, everyone toggles, the Wortführer (`brain`) confirms; posts = each player his own (the Wortführer also sets bots'); job decisions = the role named in the rules; secret offers and accusations = every human privately, applied only when all answered or the timer ran out.
+
+Starting a job: `deps.plan?.start()` from a level (LevelDeps.plan), `?plan=1` (host starts right after the session starts), or `window.__nv.plan.start()`. `plan.running()` is true until the debrief. Tests: `window.__nvPlanTimes = { board: 90000, … }` shortens or lengthens the phase timers, `window.__nvPlanSeed` fixes the job. The host stores `missions['plan.varga'] = { stars, best }` in the campaign save at the debrief.
+
+Tests: `node tests/plan-logic.mjs` (rules, balance, privacy of the public view), `flock /tmp/nv-browser.lock node tests/plan.mjs` (4 players + solo), `tests/shots-plan.mjs` (screenshots).
 
 ## Rules (each one exists because breaking it caused a visible bug)
 
