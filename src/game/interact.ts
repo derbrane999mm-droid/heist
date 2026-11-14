@@ -24,6 +24,8 @@ export class Interactions {
   private ray = new THREE.Raycaster();
   focused: Interactable | null = null;
   holding: Interactable | null = null;
+  /** Counts every completed press: the first-person hands play a reach on change. */
+  useCount = 0;
   /** Prompt for the HUD: `{ text, hold }` or null. */
   promptText: { text: string; hold: boolean; locked?: boolean } | null = null;
 
@@ -104,9 +106,11 @@ export class Interactions {
       if (best.hold) {
         if (!this.holding && this.input.usePressed()) {
           this.holding = best;
+          this.useCount++;
           best.onHoldStart?.();
         }
       } else if (this.input.usePressed()) {
+        this.useCount++;
         best.onUse?.();
       }
       const text = best.prompt();

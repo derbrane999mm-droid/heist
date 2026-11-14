@@ -7,9 +7,12 @@ import { settings, playerId } from './core/settings';
 import { t, missingTranslations } from './core/i18n';
 import { createMaterials } from './game/materials';
 import { Interactions } from './game/interact';
+import { Viewmodel } from './game/viewmodel';
+import { initRealMats, texturesReady } from './game/realmats';
+import { preloadModels } from './game/models';
 import { Player } from './game/player';
 import { Avatar } from './game/avatar';
-import { LEVELS } from './game/levels';
+import { LEVELS, LEVEL_MODELS } from './game/levels';
 import type { Level } from './game/level';
 import { Session, normalizeCode, MAX_PLAYERS, type JoinError } from './net/session';
 import { Voice } from './net/voice';
@@ -75,11 +78,14 @@ async function boot() {
   stage('physics');
   const mats = createMaterials(Math.min(8, engine.renderer.capabilities.getMaxAnisotropy()), engine.quality.name !== 'low');
   stage('materials');
+  await initRealMats(Math.min(8, engine.renderer.capabilities.getMaxAnisotropy()));
   const interactions = new Interactions(physics, input);
   const lineupView = new LineupView(document.getElementById('ui')!, input, audio, ui);
   // Every light that can ever exist is created now. The number of lights is part
   // of each compiled shader, so adding one later would recompile everything.
   const flashlight = Player.createFlashlight(engine);
+  const viewmodel = new Viewmodel(engine, flashlight);
+  await viewmodel.ready;
   const lightPool: THREE.SpotLight[] = [];
   const lightHome = new THREE.Group();
   engine.scene.add(lightHome);
@@ -93,9 +99,11 @@ async function boot() {
   };
 
   const levelName = q.get('level') ?? 'hideout';
+  await preloadModels(LEVEL_MODELS[levelName] ?? []);
   const options = Object.fromEntries(q.entries());
   level = (LEVELS[levelName] ?? LEVELS.hideout)({ engine, physics, audio, mats, interactions, input, ui, player: () => player, options });
 
+  await texturesReady();
   // compile everything behind the loading screen (including a crew member's suit)
   {
     const dummy = new Avatar(engine.scene, 'warm-up', 0, lightPool[0]);
@@ -287,12 +295,14 @@ async function boot() {
     const playing = mode === 'playing' && player !== null && session !== null;
     const inControl = playing && (input.locked || (window as any).__nvNoPause === true);
     input.enabled = inControl;
+    viewmodel.setVisible(playing);
 
     if (playing) {
       player!.control = inControl;
       player!.update(dt);
       session!.sendPose(player!.pose());
       interactions.update(player!.eye, player!.forward, player!.body.collider, inControl);
+      viewmodel.update(dt, player!, interactions, physics);
       ui.setPrompt(interactions.promptText);
       lineupView.update();
 
@@ -367,6 +377,7 @@ async function boot() {
       return voice;
     },
     avatars,
+    viewmodel,
     start,
     leave,
     level,

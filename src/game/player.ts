@@ -47,17 +47,23 @@ export class Player {
   private vel = new THREE.Vector3();
   private vy = 0;
   private eyeH = EYE_STAND;
-  private bobPhase = 0;
+  /** Walk cycle, read by the first-person hands. */
+  bobPhase = 0;
   private lastStep = 0;
   private airTime = 0;
-  private dip = 0;
+  dip = 0;
   private roll = 0;
   private fovKick = 0;
   private lightTarget = 0;
   private wasGrounded = true;
 
   private want = new THREE.Vector3();
-  private bobAmt = 0;
+  bobAmt = 0;
+  sprinting = false;
+  /** 0..1, eased: how much the flashlight is on. */
+  get lightLevel() {
+    return this.lightTarget;
+  }
 
   constructor(
     private engine: Engine,
@@ -154,6 +160,7 @@ export class Player {
       fz /= len;
     }
     const sprinting = active && input.held('sprint') && fz < 0 && !this.crouching;
+    this.sprinting = sprinting;
     const speed = this.crouching ? CROUCH : sprinting ? SPRINT : WALK;
     const sin = Math.sin(this.yaw);
     const cos = Math.cos(this.yaw);

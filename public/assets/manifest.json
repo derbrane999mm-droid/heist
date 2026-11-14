@@ -1,0 +1,189 @@
+{
+ "tex": {
+  "carpet_red": {
+   "color": "tex/carpet_red/color.jpg",
+   "normal": "tex/carpet_red/normal.jpg",
+   "rough": "tex/carpet_red/rough.jpg",
+   "note": "Dark red woven fabric with fine diagonal ribbing; reads as plain red carpet / heavy upholstery. | tile ~0.5 x 0.5 m (use ~1 m for a coarser carpet look)"
+  },
+  "carpet_office_grey": {
+   "color": "tex/carpet_office_grey/color.jpg",
+   "normal": "tex/carpet_office_grey/normal.jpg",
+   "note": "Light grey commercial carpet tiles, patchwork of loop-pile squares; back offices and staff corridors. 512 px, no roughness map (use roughness ~0.95). | tile ~2.0 x 2.0 m"
+  },
+  "carpet_paisley": {
+   "color": "tex/carpet_paisley/color.jpg",
+   "normal": "tex/carpet_paisley/normal.jpg",
+   "note": "Ornate tan/ochre paisley woven fabric with red accents; patterned hotel/casino carpet or upholstery. No roughness map (use ~0.9). | tile ~1.2 x 1.2 m as carpet, ~0.6 m as upholstery"
+  },
+  "fabric_damask": {
+   "color": "tex/fabric_damask/color.jpg",
+   "normal": "tex/fabric_damask/normal.jpg",
+   "rough": "tex/fabric_damask/rough.jpg",
+   "note": "Black fabric with copper-gold damask ornaments; wall covering, curtains or upholstery. 512 px. Ornament threads are meant to be metallic (not encoded here). | tile ~0.6 x 0.6 m"
+  },
+  "felt_green": {
+   "color": "tex/felt_green/color.jpg",
+   "normal": "tex/felt_green/normal.jpg",
+   "rough": "tex/felt_green/rough.jpg",
+   "note": "Casino-green table cloth / baize with subtle woven mottling (green recolour of a denim scan). | tile ~0.5 x 0.5 m"
+  },
+  "leather_brown": {
+   "color": "tex/leather_brown/color.jpg",
+   "normal": "tex/leather_brown/normal.jpg",
+   "note": "Smooth mid-brown leather with fine grain. 512 px, no roughness map (use ~0.45). | tile ~0.4 x 0.4 m"
+  },
+  "wood_veneer_dark": {
+   "color": "tex/wood_veneer_dark/color.jpg",
+   "normal": "tex/wood_veneer_dark/normal.jpg",
+   "rough": "tex/wood_veneer_dark/rough.jpg",
+   "note": "Dark walnut-brown wood veneer, fine straight grain running along U (horizontal). Wall panelling, desks, bar fronts. | tile ~1.0 x 1.0 m"
+  },
+  "wood_veneer_mahogany": {
+   "color": "tex/wood_veneer_mahogany/color.jpg",
+   "rough": "tex/wood_veneer_mahogany/rough.jpg",
+   "note": "Warm red-brown mahogany veneer with wavy grain along U (horizontal). No normal map (surface is flat/lacquered). | tile ~1.2 x 1.2 m"
+  },
+  "parquet_dark": {
+   "color": "tex/parquet_dark/color.jpg",
+   "normal": "tex/parquet_dark/normal.jpg",
+   "rough": "tex/parquet_dark/rough.jpg",
+   "ao": "tex/parquet_dark/ao.jpg",
+   "note": "Dark red-brown strip parquet, glossy finish (low roughness), strips running along U. | tile ~1.0 x 1.0 m"
+  },
+  "parquet_herringbone": {
+   "color": "tex/parquet_herringbone/color.jpg",
+   "normal": "tex/parquet_herringbone/normal.jpg",
+   "rough": "tex/parquet_herringbone/rough.jpg",
+   "ao": "tex/parquet_herringbone/ao.jpg",
+   "note": "Dark brown herringbone parquet with visible grain, satin finish. | tile ~1.2 x 1.2 m"
+  },
+  "wood_floor_planks": {
+   "color": "tex/wood_floor_planks/color.jpg",
+   "normal": "tex/wood_floor_planks/normal.jpg",
+   "rough": "tex/wood_floor_planks/rough.jpg",
+   "ao": "tex/wood_floor_planks/ao.jpg",
+   "note": "Medium-brown rustic floor planks with knots, semi-gloss; NON-SQUARE 2:1 texture (1024x512), planks run along U. | tile ~2.0 x 1.0 m"
+  },
+  "plaster_beige": {
+   "color": "tex/plaster_beige/color.jpg",
+   "normal": "tex/plaster_beige/normal.jpg",
+   "rough": "tex/plaster_beige/rough.jpg",
+   "note": "Plain beige painted interior wall, very subtle roller texture. | tile ~2.0 x 2.0 m"
+  },
+  "concrete_floor_worn": {
+   "color": "tex/concrete_floor_worn/color.jpg",
+   "normal": "tex/concrete_floor_worn/normal.jpg",
+   "rough": "tex/concrete_floor_worn/rough.jpg",
+   "note": "Dark worn concrete floor with scuffed remains of ochre paint; back-of-house, loading area, plant rooms. | tile ~2.0 x 2.0 m"
+  },
+  "concrete_light": {
+   "color": "tex/concrete_light/color.jpg",
+   "normal": "tex/concrete_light/normal.jpg",
+   "rough": "tex/concrete_light/rough.jpg",
+   "ao": "tex/concrete_light/ao.jpg",
+   "note": "Light grey board-formed concrete with panel seams; staff corridor walls or sealed floor. | tile ~2.4 x 2.4 m"
+  },
+  "marble_black": {
+   "color": "tex/marble_black/color.jpg",
+   "rough": "tex/marble_black/rough.jpg",
+   "note": "Polished black marble with white-grey veining (very low roughness, mirror-like). No normal map (flat polished surface). | tile ~1.5 x 1.5 m"
+  },
+  "marble_tiles_white": {
+   "color": "tex/marble_tiles_white/color.jpg",
+   "normal": "tex/marble_tiles_white/normal.jpg",
+   "rough": "tex/marble_tiles_white/rough.jpg",
+   "ao": "tex/marble_tiles_white/ao.jpg",
+   "note": "Polished white-lilac marble in a triangular/hexagonal tile layout with thin joints. | tile ~1.2 x 1.2 m"
+  },
+  "marble_tiles_beige": {
+   "color": "tex/marble_tiles_beige/color.jpg",
+   "normal": "tex/marble_tiles_beige/normal.jpg",
+   "rough": "tex/marble_tiles_beige/rough.jpg",
+   "note": "Honed beige limestone/marble slabs of mixed rectangular sizes. | tile ~2.0 x 2.0 m"
+  },
+  "stone_tiles_checker": {
+   "color": "tex/stone_tiles_checker/color.jpg",
+   "normal": "tex/stone_tiles_checker/normal.jpg",
+   "rough": "tex/stone_tiles_checker/rough.jpg",
+   "note": "Checkerboard of light and dark honed stone tiles (4 x 4 tiles per repeat), slightly worn. | tile ~1.2 x 1.2 m"
+  },
+  "tiles_white_small": {
+   "color": "tex/tiles_white_small/color.jpg",
+   "normal": "tex/tiles_white_small/normal.jpg",
+   "rough": "tex/tiles_white_small/rough.jpg",
+   "note": "Small glossy white square ceramic tiles (10 x 10 per repeat) with grey grout; washrooms, kitchen, staff areas. | tile ~1.0 x 1.0 m"
+  },
+  "terrazzo_tiles": {
+   "color": "tex/terrazzo_tiles/color.jpg",
+   "normal": "tex/terrazzo_tiles/normal.jpg",
+   "rough": "tex/terrazzo_tiles/rough.jpg",
+   "ao": "tex/terrazzo_tiles/ao.jpg",
+   "note": "Grey-black speckled terrazzo floor tiles (4 x 4 per repeat) with thin joints, polished; corridors and service areas. | tile ~1.6 x 1.6 m"
+  },
+  "metal_brushed_steel": {
+   "color": "tex/metal_brushed_steel/color.jpg",
+   "normal": "tex/metal_brushed_steel/normal.jpg",
+   "rough": "tex/metal_brushed_steel/rough.jpg",
+   "note": "Brushed stainless steel, brushing along U (horizontal). Set metalness = 1. | tile ~0.5 x 0.5 m"
+  },
+  "metal_gold": {
+   "color": "tex/metal_gold/color.jpg",
+   "normal": "tex/metal_gold/normal.jpg",
+   "rough": "tex/metal_gold/rough.jpg",
+   "note": "Polished gold / brass with faint tarnish spots and micro-scratches. Set metalness = 1. | tile ~0.8 x 0.8 m"
+  },
+  "brick_red": {
+   "color": "tex/brick_red/color.jpg",
+   "normal": "tex/brick_red/normal.jpg",
+   "rough": "tex/brick_red/rough.jpg",
+   "ao": "tex/brick_red/ao.jpg",
+   "note": "Red clay brick wall in running bond with grey mortar, slightly weathered. | tile ~0.7 x 0.7 m"
+  },
+  "ceiling_tile": {
+   "color": "tex/ceiling_tile/color.jpg",
+   "note": "One suspended acoustic ceiling panel (speckled white mineral fibre) including its T-bar frame; repeats into a grid. Colour only, NON-SQUARE 1:2 texture (512x1024). | tile ~0.6 x 1.2 m"
+  }
+ },
+ "hdr": [
+  "hdr/music_hall_01_1k.hdr",
+  "hdr/moonless_golf_1k.hdr"
+ ],
+ "models": [
+  {
+   "file": "models/chair_damask.glb",
+   "note": "Low, wide armless lounge chair, wooden legs, purple fabric with gold damask pattern. 0.83 w x 0.57 d m, ~10k triangles. CC-BY 4.0 (Wayfair / Eric Chadwick).",
+   "approxHeightMetres": 0.69
+  },
+  {
+   "file": "models/chair_fabric.glb",
+   "note": "Same lounge chair with plain orange (mango) velvet-like fabric. 0.83 w x 0.57 d m, ~40k triangles (heavier; prefer chair_damask when placing many). CC0.",
+   "approxHeightMetres": 0.69
+  },
+  {
+   "file": "models/sofa_velvet.glb",
+   "note": "Curved navy-blue velvet lounge sofa on thin metal legs. 2.19 w x 1.02 d m, ~4k triangles. CC-BY 4.0 (Wayfair / Eric Chadwick).",
+   "approxHeightMetres": 0.79
+  },
+  {
+   "file": "models/plant_potted.glb",
+   "note": "Leafy house plant in a terracotta pot (leaves use alpha cutout, double-sided). 0.70 x 0.66 m footprint, ~68k triangles. CC-BY 4.0 (Darmstadt Graphics Group / Eric Chadwick; original plant by Rico Cilliers, CC0).",
+   "approxHeightMetres": 0.84
+  },
+  {
+   "file": "models/lamp_table.glb",
+   "note": "Small table lamp, dark drum shade on a glass base with iridescent coating. 0.30 m diameter, ~19k triangles. Glass uses transmission (extra render pass in three.js). No light source included. CC-BY 4.0 (Wayfair / Eric Chadwick).",
+   "approxHeightMetres": 0.48
+  },
+  {
+   "file": "models/lamp_floor.glb",
+   "note": "Art-nouveau style floor lamp: curved bronze stem with a flower-shaped glass shade (decorative, not modern). 1.13 x 0.72 m footprint, ~6k triangles. Embedded lights removed; shade uses transmission. CC-BY 4.0 (DGG).",
+   "approxHeightMetres": 1.86
+  },
+  {
+   "file": "models/vase_flowers.glb",
+   "note": "Small glass vase with flowers, table decoration. 0.22 x 0.14 m footprint, ~10k triangles. Glass uses transmission. CC0 (Eric Chadwick, Rico Cilliers).",
+   "approxHeightMetres": 0.2
+  }
+ ]
+}
