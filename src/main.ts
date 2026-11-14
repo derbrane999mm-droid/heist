@@ -68,6 +68,12 @@ async function boot() {
       document.fonts.load('500 32px "Chakra Petch"'),
       document.fonts.load('400 32px "Chakra Petch"'),
       document.fonts.load('500 32px "JetBrains Mono"'),
+      // menu and HUD
+      document.fonts.load('600 32px "Barlow Condensed"'),
+      document.fonts.load('700 32px "Barlow Condensed"'),
+      document.fonts.load('400 16px "Inter"'),
+      document.fonts.load('500 16px "Inter"'),
+      document.fonts.load('600 16px "Inter"'),
     ]);
   } catch {
     /* fall back to system fonts */
