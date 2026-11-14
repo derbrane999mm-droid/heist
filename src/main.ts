@@ -104,7 +104,7 @@ async function boot() {
     flashlight.castShadow = qp.shadows && qp.name !== 'medium';
   };
 
-  const levelName = q.get('level') ?? 'hideout';
+  const levelName = q.get('level') ?? 'hq';
   await preloadModels(LEVEL_MODELS[levelName] ?? []);
   const options = Object.fromEntries(q.entries());
   level = (LEVELS[levelName] ?? LEVELS.hideout)({ engine, physics, audio, mats, interactions, input, ui, player: () => player, options });

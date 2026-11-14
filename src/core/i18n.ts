@@ -21,7 +21,7 @@ const en: Dict = {
   'menu.invite.done': 'Invite link copied',
   'menu.paused': 'Paused',
   'menu.clickToPlay': 'Click to continue',
-  'menu.build': 'Build {v} · foundation slice',
+  'menu.build': 'Build {v}',
   'menu.connecting': 'Connecting…',
   'menu.color': 'Suit colour',
 
@@ -224,7 +224,7 @@ const de: Dict = {
   'menu.invite.done': 'Einladungslink kopiert',
   'menu.paused': 'Pause',
   'menu.clickToPlay': 'Klicken zum Fortsetzen',
-  'menu.build': 'Build {v} · Fundament-Slice',
+  'menu.build': 'Build {v}',
   'menu.connecting': 'Verbinde…',
   'menu.color': 'Anzugfarbe',
 
