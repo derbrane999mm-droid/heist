@@ -189,8 +189,15 @@ export function createCalibRange(deps: LevelDeps): Level {
   const diff = clampDiff(deps.options.diff);
   let session: Session | null = null;
   const unsubs: (() => void)[] = [];
-  const st = (): Rng | undefined => session?.get<Rng>('rng');
-  const result = (): CalibResult | undefined => session?.get<CalibResult>('calib.result');
+  // replicated state, re-read when it changes (see attach)
+  let rngState: Rng | undefined;
+  let calibResult: CalibResult | undefined;
+  const readState = () => {
+    rngState = session?.get<Rng>('rng');
+    calibResult = session?.get<CalibResult>('calib.result');
+  };
+  const st = (): Rng | undefined => rngState;
+  const result = (): CalibResult | undefined => calibResult;
 
   engine.scene.background = new THREE.Color(0x030508);
   engine.scene.fog = new THREE.FogExp2(0x05080d, 0.02);
@@ -346,8 +353,8 @@ export function createCalibRange(deps: LevelDeps): Level {
     }
   }
   cover(-0.9, 24.8, 1.8, 0.7);
-  cover(6.9, 22.2, 1.4, 0.7);
-  cover(-7.0, 22.4, 1.2, 0.8);
+  cover(4.2, 22.1, 1.4, 0.7);
+  cover(-7.1, 24.6, 1.2, 0.8);
   cover(-6.3, 17.9, 0.8, 1.9);
   cover(6.3, 18.6, 0.8, 1.9);
   cover(-5.0, 15.5, 1.4, 0.7);
@@ -648,6 +655,7 @@ export function createCalibRange(deps: LevelDeps): Level {
       const init: Rng = { stage: 1, fails: 0, t0: s.hostNow(), loud: false, hold: freshHold(), sent: 0 };
       s.set('rng', init);
     }
+    readState();
     populate(s.get<Rng>('rng').stage);
 
     sh.onAlert = () => {
@@ -751,7 +759,7 @@ export function createCalibRange(deps: LevelDeps): Level {
         for (let i = 0; i < n; i++) {
           const [vx, vy, vz] = VENTS[ventNext];
           ventNext = (ventNext + 1) % VENTS.length;
-          sh.spawn({ type: 'scout', x: vx + (Math.random() - 0.5) * 0.8, z: vz + (Math.random() - 0.5) * 0.8, fromY: vy, y: 1.5 + Math.random() * 0.9, yaw: yawTo(ZX - vx, ZZ - vz), alert: true, group: 2, dmg: 0.6 });
+          sh.spawn({ type: 'scout', x: vx + (Math.random() - 0.5) * 0.8, z: vz + (Math.random() - 0.5) * 0.8, fromY: vy, y: 1.5 + Math.random() * 0.9, yaw: yawTo(ZX - vx, ZZ - vz), alert: true, group: 2, dmg: 0.5 });
         }
         wave++;
         waveT = plan.gap;
@@ -870,14 +878,18 @@ export function createCalibRange(deps: LevelDeps): Level {
   const attach = (s: Session) => {
     session = s;
     sh.attach(s);
-    if (s.isHost) installHost(s);
     unsubs.push(
       s.onState((path) => {
         if (path === '' || path.startsWith('rng') || path.startsWith('calib')) {
+          readState();
           redrawScreens();
           showCard();
         }
       }),
+    );
+    if (s.isHost) installHost(s);
+    readState();
+    unsubs.push(
       s.onEvent((name, a) => {
         switch (name) {
           case 'sfx':
@@ -910,6 +922,7 @@ export function createCalibRange(deps: LevelDeps): Level {
     sh.onAlert = null;
     sh.detach();
     session = null;
+    readState();
     for (const d of doors) d.open = 0;
     cardKey = '';
     card.classList.add('hidden');

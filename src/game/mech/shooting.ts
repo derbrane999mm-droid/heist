@@ -164,7 +164,7 @@ export interface Shooting {
   readonly tun: Tuning;
   /** Levels can holster the weapon (cutscenes, safe rooms). */
   enabled: boolean;
-  /** Test switch: drones neither sense, move nor attack. */
+  /** Test switch: drones neither sense, move nor attack, projectiles hang in the air. */
   frozen: boolean;
   attach(session: Session): void;
   detach(): void;
@@ -283,6 +283,7 @@ interface Drone {
   strafe: number;
   strafeT: number;
   climb: number;
+  blockT: number;
   shieldHp: number;
   shieldDown: number;
   dieT: number;
@@ -402,6 +403,11 @@ export function createShooting(deps: LevelDeps, opts: ShootingOptions): Shooting
 
   let session: Session | null = null;
   const unsubs: (() => void)[] = [];
+  // replicated maps, re-read only when they change (not once per frame)
+  type RevMap = Record<string, { by: string; at: number }>;
+  const NONE: Record<string, never> = {};
+  let downView: Record<string, number> = NONE;
+  let revView: RevMap = NONE;
 
   // LevelDeps carries no input object (yet): use it if a later engine version
   // adds one, otherwise the instance main.ts exposes.
@@ -428,17 +434,17 @@ export function createShooting(deps: LevelDeps, opts: ShootingOptions): Shooting
   const additive = (r: number, g: number, b: number, vertexColors = false) =>
     new THREE.MeshBasicMaterial({ color: new THREE.Color(r, g, b), transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide, vertexColors, fog: false });
   // vision footprint on the floor: a faint fill plus a crisp outline, cyan while unaware, amber while suspicious
-  const fanMats = [additive(0.012, 0.075, 0.09, true), additive(0.17, 0.075, 0.008, true)];
+  const fanMats = [additive(0.006, 0.042, 0.052, true), additive(0.11, 0.048, 0.005, true)];
   for (const fm of fanMats) {
     fm.polygonOffset = true;
     fm.polygonOffsetFactor = -2;
   }
   const lineMat = (r: number, g: number, b: number) => new THREE.LineBasicMaterial({ color: new THREE.Color(r, g, b), transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, fog: false });
   const fanLineMats = [lineMat(0.1, 0.62, 0.7), lineMat(1.5, 0.7, 0.1)];
-  const chargeMat = additive(3.2, 0.7, 0.5);
+  const chargeMat = additive(3.2, 0.7, 0.5, true);
   const coreMat = new THREE.MeshStandardMaterial({ color: 0x000000, emissive: 0xff8a2a, emissiveIntensity: 4.5, roughness: 0.4 });
-  const boltMat = additive(3.4, 0.75, 0.4);
-  const orbMat = additive(3.2, 0.3, 0.9);
+  const boltMat = additive(3.4, 0.75, 0.4, true);
+  const orbMat = additive(3.2, 0.3, 0.9, true);
   const tracerMat = additive(0.7, 2.6, 2.4);
   const sparkMats = [additive(0.8, 2.6, 2.4), additive(3.0, 1.2, 0.4), additive(0.5, 1.5, 3.0)];
   const beaconMat = additive(2.2, 0.25, 0.3);
@@ -506,8 +512,9 @@ export function createShooting(deps: LevelDeps, opts: ShootingOptions): Shooting
     fanLineIndex.push(m0 + 1, m0 + 3, m0, m0 + 2);
   }
   const fanSphere = new THREE.Sphere(new THREE.Vector3(), tun.viewDist + 1);
-  const orbGeo = new THREE.IcosahedronGeometry(1, 1);
-  const boltGeo = new THREE.SphereGeometry(0.09, 10, 8).scale(1, 1, 3.2);
+  // projectiles: a white-hot core inside a dim halo (vertex colours scale the additive colour)
+  const orbGeo = merged([tinted(new THREE.IcosahedronGeometry(0.5, 1), 1), tinted(new THREE.IcosahedronGeometry(1, 1), 0.2)]);
+  const boltGeo = merged([tinted(new THREE.SphereGeometry(0.04, 8, 6).scale(1, 1, 6), 1), tinted(new THREE.SphereGeometry(0.11, 10, 8).scale(1, 1, 3), 0.15)]);
   const boxGeo = new THREE.BoxGeometry(1, 1, 1);
   const sparkGeo = new THREE.IcosahedronGeometry(1, 0);
   const beaconGeo = merged([new THREE.TorusGeometry(0.55, 0.035, 6, 36).rotateX(Math.PI / 2).translate(0, 0.04, 0), new THREE.CylinderGeometry(0.018, 0.018, 2.4, 6).translate(0, 1.2, 0)]);
@@ -570,7 +577,7 @@ export function createShooting(deps: LevelDeps, opts: ShootingOptions): Shooting
       homeX: 0, homeZ: 0, homeYaw: 0, sweep: 0, ret: false, retX: 0, retZ: 0, group: 0, dmgScale: 1,
       see: 0, sus: 0, heard: false, hunt: false, poiX: 0, poiZ: 0, alarm: 0, senseAcc: 0,
       target: null, hasLos: false, lastX: 0, lastZ: 0, aimX: 0, aimY: 0, aimZ: 0, chargeT: -1, cool: 0,
-      strafe: 1, strafeT: 0, climb: 0, shieldHp: 0, shieldDown: 0, dieT: 0, fall: 0, restY: 0.25, tdBy: null, tdT: 0,
+      strafe: 1, strafeT: 0, climb: 0, blockT: 0, shieldHp: 0, shieldDown: 0, dieT: 0, fall: 0, restY: 0.25, tdBy: null, tdT: 0,
       obj, glow, fan, fanLine, fanPos, fanT: 0, floorY: Infinity, orb, rotor, shieldMesh, shieldMat,
       shown: false, vGen: -1, pSt: ST_UNAWARE, pCharge: 0, flash: 0, shieldFlash: 0, coneK: 1, shieldK: 1, spin: 0, log: [],
     };
@@ -1060,7 +1067,7 @@ export function createShooting(deps: LevelDeps, opts: ShootingOptions): Shooting
       d.lastZ = tp.z;
     }
     if (was !== ST_ALERT) {
-      d.cool = 0.5 + Math.random() * 0.9;
+      d.cool = (0.4 + Math.random() * 0.8) * (0.3 + tun.spotTime); // slower to open fire on low difficulty
       d.chargeT = -1;
       d.strafe = Math.random() < 0.5 ? -1 : 1;
       d.strafeT = 1 + Math.random() * 2;
@@ -1307,7 +1314,7 @@ export function createShooting(deps: LevelDeps, opts: ShootingOptions): Shooting
     }
     // revives in progress
     const hostNow = s.hostNow();
-    for (const target of Object.keys(revMap)) {
+    for (const target in revMap) {
       const r = revMap[target];
       const a = pmap.get(r.by);
       const b = pmap.get(target);
@@ -1430,7 +1437,7 @@ export function createShooting(deps: LevelDeps, opts: ShootingOptions): Shooting
           }
           d.wait -= dt;
           // look left and right before moving on
-          wantYaw = d.arriveYaw + Math.sin((d.pause - d.wait) * 2.2) * 0.85;
+          wantYaw = d.arriveYaw + Math.sin((d.pause - d.wait) * 2.2) * 0.65;
           if (d.wait <= 0) {
             d.wp = (d.wp + 1) % d.route.length;
             d.arrived = false;
@@ -1544,10 +1551,15 @@ export function createShooting(deps: LevelDeps, opts: ShootingOptions): Shooting
         // something in the way: stop, try the other direction, and go over it if it is low enough
         d.vx *= 0.1;
         d.vz *= 0.1;
-        d.strafe = -d.strafe;
+        if (d.blockT <= 0) {
+          d.strafe = -d.strafe;
+          d.strafeT = 1.5 + Math.random() * 2;
+          d.blockT = 0.9;
+        }
         if (d.st === ST_ALERT) d.climb = 1.4;
       }
     }
+    if (d.blockT > 0) d.blockT -= dt;
     d.x += d.vx * dt;
     d.z += d.vz * dt;
     // separation: drones never stack inside each other
@@ -1585,7 +1597,7 @@ export function createShooting(deps: LevelDeps, opts: ShootingOptions): Shooting
     chargingNow = 0;
     for (const d of drones) if (d.active && d.chargeT >= 0) chargingNow++;
     for (const d of drones) if (d.active) think(d, dt, time);
-    stepShots(dt);
+    if (!api.frozen) stepShots(dt);
     if (session) stepPlayers(dt);
   };
 
@@ -2015,17 +2027,14 @@ export function createShooting(deps: LevelDeps, opts: ShootingOptions): Shooting
     const s = session;
     let n = 0;
     if (s) {
-      const down = s.get<Record<string, number>>('sh.down');
-      if (down) {
-        for (const pid in down) {
-          if (pid === s.pid || n >= beacons.length) continue;
-          const pose = s.poseOf(pid);
-          if (!pose) continue;
-          const b = beacons[n++];
-          b.position.set(pose.x, pose.y + 0.02, pose.z);
-          const k = 1 + Math.sin(time * 5) * 0.12;
-          b.scale.set(k, 1, k);
-        }
+      for (const pid in downView) {
+        if (pid === s.pid || n >= beacons.length) continue;
+        const pose = s.poseOf(pid);
+        if (!pose) continue;
+        const b = beacons[n++];
+        b.position.set(pose.x, pose.y + 0.02, pose.z);
+        const k = 1 + Math.sin(time * 5) * 0.12;
+        b.scale.set(k, 1, k);
       }
     }
     for (let i = n; i < beacons.length; i++) if (beacons[i].position.y > -70) beacons[i].position.set(0, -76, 0);
@@ -2037,7 +2046,7 @@ export function createShooting(deps: LevelDeps, opts: ShootingOptions): Shooting
   const isDown = (pid?: string): boolean => {
     const s = session;
     if (!s) return false;
-    return !!s.get<Record<string, number>>('sh.down')?.[pid ?? s.pid];
+    return !!downView[pid ?? s.pid];
   };
   const hpOf = (pid?: string): number => {
     const s = session;
@@ -2267,27 +2276,23 @@ export function createShooting(deps: LevelDeps, opts: ShootingOptions): Shooting
     let prog = 0;
     if (!down && !player.frozen && api.enabled) {
       const pos = player.position;
-      const downed = s.get<Record<string, number>>('sh.down');
-      const rev = s.get<Record<string, { by: string; at: number }>>('sh.rev');
       let bd = REVIVE_RANGE;
-      if (downed) {
-        for (const pid in downed) {
-          if (pid === me) continue;
-          const pose = s.poseOf(pid);
-          if (!pose) continue;
-          const by = rev?.[pid]?.by;
-          if (by && by !== me) continue; // someone is already on it
-          const dist = Math.hypot(pose.x - pos.x, pose.z - pos.z);
-          if (dist < bd) {
-            bd = dist;
-            candKind = 'rev';
-            candId = pid;
-          }
+      for (const pid in downView) {
+        if (pid === me) continue;
+        const pose = s.poseOf(pid);
+        if (!pose) continue;
+        const by = revView[pid]?.by;
+        if (by && by !== me) continue; // someone is already on it
+        const dist = Math.hypot(pose.x - pos.x, pose.z - pos.z);
+        if (dist < bd) {
+          bd = dist;
+          candKind = 'rev';
+          candId = pid;
         }
       }
       if (candKind === 'rev') {
         promptT = t('sh.prompt.revive', { name: s.players.get(candId)?.name ?? '?' });
-        const r = rev?.[candId];
+        const r = revView[candId];
         if (r && r.by === me) prog = (s.hostNow() - r.at) / (REVIVE_TIME * 1000);
       } else {
         let best = TAKEDOWN_RANGE;
@@ -2339,7 +2344,7 @@ export function createShooting(deps: LevelDeps, opts: ShootingOptions): Shooting
       ammoBox.classList.toggle('empty', ammo === 0 && !reloading);
       ammoBox.classList.toggle('reload', reloading);
     }
-    const aw = api.awareness();
+    const aw = down ? -1 : api.awareness();
     if (aw !== hudState.aware) {
       if (aw === 2 && hudState.aware >= 0 && hudState.aware < 2) sndSpotted();
       hudState.aware = aw;
@@ -2350,7 +2355,7 @@ export function createShooting(deps: LevelDeps, opts: ShootingOptions): Shooting
     let downKey = '';
     let dProg = -1;
     if (down) {
-      const r = s.get<Record<string, { by: string; at: number }>>('sh.rev')?.[me];
+      const r = revView[me];
       if (wiping) downKey = t('sh.down.wipe');
       else if (r) {
         downKey = t('sh.down.by', { name: s.players.get(r.by)?.name ?? '?' });
@@ -2491,7 +2496,17 @@ export function createShooting(deps: LevelDeps, opts: ShootingOptions): Shooting
       hurtFlash = 0;
       holdKind = '';
       resetHud();
+      const readState = () => {
+        downView = s.get<Record<string, number>>('sh.down') ?? NONE;
+        revView = s.get<RevMap>('sh.rev') ?? NONE;
+      };
+      unsubs.push(
+        s.onState((path) => {
+          if (path === '' || path.startsWith('sh')) readState();
+        }),
+      );
       if (s.isHost) installHost(s);
+      readState();
       unsubs.push(
         s.onEvent(onEvent),
         s.onCast((name, data) => {
@@ -2509,6 +2524,8 @@ export function createShooting(deps: LevelDeps, opts: ShootingOptions): Shooting
       if (player && froze) player.frozen = false;
       froze = false;
       session = null;
+      downView = NONE;
+      revView = NONE;
       api.clear();
       pmap.clear();
       plist.length = 0;
@@ -2617,6 +2634,7 @@ export function createShooting(deps: LevelDeps, opts: ShootingOptions): Shooting
       d.strafe = Math.random() < 0.5 ? -1 : 1;
       d.strafeT = 1 + Math.random() * 2;
       d.climb = 0;
+      d.blockT = 0;
       d.dieT = 0;
       d.fall = 0;
       return d.id;
