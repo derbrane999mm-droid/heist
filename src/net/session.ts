@@ -3,7 +3,8 @@
 //
 //  - reliable channel:   hello/welcome, roster, state patches, events, intents
 //  - unreliable channel: player poses at 20 Hz (stale packets are dropped)
-import { Peer, type DataConnection, type PeerOptions } from 'peerjs';
+import { Peer, type DataConnection } from 'peerjs';
+import { peerOptions } from './netconfig';
 import type { Pose } from '../game/player';
 
 export const PROTOCOL = 1;
@@ -29,22 +30,6 @@ interface Link {
   peerId: string;
   rel: DataConnection;
   unrel?: DataConnection;
-}
-
-/** Extra ICE servers (TURN relay) can be added here once an account exists. */
-const ICE_SERVERS: RTCIceServer[] = [
-  { urls: 'stun:stun.l.google.com:19302' },
-  { urls: 'stun:stun.cloudflare.com:3478' },
-  { urls: 'stun:stun1.l.google.com:19302' },
-];
-
-function peerOptions(): PeerOptions {
-  const q = new URLSearchParams(location.search);
-  if (q.get('signal') === 'local') {
-    // automated tests run their own signalling server
-    return { host: '127.0.0.1', port: Number(q.get('sigport') || 9000), path: '/', secure: false, debug: 0, config: { iceServers: [] } };
-  }
-  return { debug: 0, config: { iceServers: ICE_SERVERS } };
 }
 
 export function makeCode(): string {

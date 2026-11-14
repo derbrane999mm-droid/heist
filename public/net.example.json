@@ -1,0 +1,20 @@
+{
+  "_readme": "Copy this file to net.json (same folder as index.html) and edit. Without net.json the game uses the built-in settings. Keys starting with _ are ignored. See docs/NETWORK.md.",
+  "iceServers": [
+    {
+      "urls": ["turn:turn.example.org:3478?transport=udp", "turn:turn.example.org:3478?transport=tcp", "turns:turn.example.org:443?transport=tcp"],
+      "username": "USERNAME",
+      "credential": "PASSWORD"
+    }
+  ],
+  "_iceServers": "Added to the built-in public STUN servers. Set \"replaceDefaults\": true next to iceServers to use only these.",
+  "replaceDefaults": false,
+  "peer": {
+    "host": "signal.example.org",
+    "port": 9000,
+    "path": "/",
+    "secure": true,
+    "key": "peerjs"
+  },
+  "_peer": "Own signalling server (npx peerjs --port 9000). Remove the whole peer block to keep the public PeerJS cloud."
+}

@@ -67,8 +67,8 @@ const en: Dict = {
   'toast.micDenied': 'Microphone blocked. You can still hear the crew.',
   'toast.full': 'This crew is full (4 players)',
   'toast.notFound': 'No crew found with code {code}',
-  'toast.blocked': 'Found the crew, but the direct connection failed. Your network is probably blocking peer-to-peer links. Try another network, for example a phone hotspot.',
-  'toast.noServer': 'Could not reach the matchmaking server. Check your internet connection and try again.',
+  'toast.blocked': 'Found the crew, but no direct link opened. Your network is probably too strict for peer-to-peer. Try: the main menu check "Test connection"; another network, for example a phone hotspot; or ask the host to share the link again.',
+  'toast.noServer': 'Could not reach the matchmaking server. Check your internet connection, run "Test connection" in the main menu and try again.',
   'toast.version': 'The host runs a different game version. Reload the page (Ctrl/Cmd + Shift + R).',
   'toast.quality': 'Graphics set to {q} to keep the frame rate smooth',
 
@@ -270,8 +270,8 @@ const de: Dict = {
   'toast.micDenied': 'Mikrofon blockiert. Du hörst die Crew trotzdem.',
   'toast.full': 'Diese Crew ist voll (4 Spieler)',
   'toast.notFound': 'Keine Crew mit dem Code {code} gefunden',
-  'toast.blocked': 'Crew gefunden, aber die Direktverbindung ist gescheitert. Dein Netzwerk blockiert vermutlich Peer-to-Peer. Probier ein anderes Netz, zum Beispiel einen Handy-Hotspot.',
-  'toast.noServer': 'Matchmaking-Server nicht erreichbar. Prüfe deine Internetverbindung und versuch es erneut.',
+  'toast.blocked': 'Crew gefunden, aber es kam keine Direktverbindung zustande. Dein Netz ist vermutlich zu streng für Peer-to-Peer. Probier: im Hauptmenü "Verbindung testen"; ein anderes Netz, zum Beispiel einen Handy-Hotspot; oder der Host schickt den Link nochmal.',
+  'toast.noServer': 'Matchmaking-Server nicht erreichbar. Prüfe deine Internetverbindung, starte im Hauptmenü "Verbindung testen" und versuch es erneut.',
   'toast.version': 'Der Host nutzt eine andere Spielversion. Seite neu laden (Strg/Cmd + Shift + R).',
   'toast.quality': 'Grafik auf {q} gestellt, damit das Spiel flüssig läuft',
 

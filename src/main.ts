@@ -16,6 +16,7 @@ import { LEVELS, LEVEL_MODELS, DEFAULT_LEVEL } from './game/levels';
 import type { Level } from './game/level';
 import { Session, normalizeCode, MAX_PLAYERS, type JoinError } from './net/session';
 import { Voice } from './net/voice';
+import { loadNetConfig } from './net/netconfig';
 import { UI, type CrewRow } from './ui/ui';
 import { LineupView, installLineupHost, roleOf } from './game/lineup';
 import { resetCampaign } from './core/save';
@@ -29,6 +30,7 @@ async function boot() {
   const t0 = performance.now();
   const stage = (name: string) => console.debug(`[nv] ${name} +${Math.round(performance.now() - t0)}ms`);
   const q = new URLSearchParams(location.search);
+  const netReady = loadNetConfig(); // optional public/net.json: relay and signalling server without a rebuild
   const invite = normalizeCode(q.get('c') || location.hash.replace('#', '') || '');
   let mode: Mode = 'menu';
   let session: Session | null = null;
@@ -400,7 +402,7 @@ async function boot() {
           const talking = you ? (voice?.speaking ?? false) : (voice?.isTalking(p.pid) ?? false);
           const role = roleOf(session, p.pid);
           const roleLabel = role ? t(`role.${role}.short`) : '';
-          rows.push({ name: p.name, role: roleLabel, color: p.color, you, host: p.host, talking });
+          rows.push({ name: p.name, role: roleLabel, color: p.color, you, host: p.host, talking, noVoice: !you && !!voice?.noVoice(p.pid) });
           if (!you) {
             const av = avatars.get(p.pid);
             av?.setTalking(talking);
@@ -416,6 +418,7 @@ async function boot() {
     input.endFrame();
   });
 
+  await netReady;
   engine.start();
   ui.showMenu('main');
   ui.hideBoot();

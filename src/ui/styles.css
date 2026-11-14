@@ -127,7 +127,8 @@ body {
   margin-top: 0;
 }
 .menu-col.view-create,
-.menu-col.view-join {
+.menu-col.view-join,
+.menu-col.view-check {
   width: min(460px, 86vw);
   margin-top: 0;
 }

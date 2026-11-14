@@ -3,6 +3,7 @@ import './styles.css';
 import { t, onLangChange } from '../core/i18n';
 import { settings, PLAYER_COLORS, type QualityName, type Settings } from '../core/settings';
 import type { MicState } from '../net/voice';
+import { createDiagPanel, type DiagPanel } from '../net/diag';
 
 export const VERSION = '0.4.0';
 /** Working title of the game, per language. Change it here (and in the <title> of index.html, which shows before the
@@ -40,6 +41,8 @@ export interface CrewRow {
   you: boolean;
   host: boolean;
   talking: boolean;
+  /** Data works but the voice link failed (strict network). */
+  noVoice?: boolean;
 }
 
 type MenuMode = 'main' | 'pause' | 'none';
@@ -62,7 +65,7 @@ export class UI {
   private subtitleEl!: HTMLElement;
   private toastsEl!: HTMLElement;
   private mode: MenuMode = 'main';
-  private view: 'home' | 'settings' | 'create' | 'join' = 'home';
+  private view: 'home' | 'settings' | 'create' | 'join' | 'check' = 'home';
   private busy = false;
   private error = '';
   private inviteCode: string | null;
@@ -74,6 +77,7 @@ export class UI {
   private lastMic = '';
   private codeDraft = '';
   private resetArmed = false;
+  private diag: DiagPanel | null = null;
 
   constructor(
     root: HTMLElement,
@@ -183,6 +187,9 @@ export class UI {
         );
       }
       col.append(actions);
+    } else if (this.mode === 'main' && this.view === 'check') {
+      this.diag ??= createDiagPanel(() => this.ev.onSound('ui'));
+      col.append(this.heading('nd.title'), this.diag.el, h('div', { class: 'actions' }, back()));
     } else if (this.mode === 'main' && (this.view === 'create' || this.view === 'join')) {
       const joining = this.view === 'join';
       const name = h('input', { type: 'text', maxlength: '16', placeholder: t('menu.name.ph'), value: settings.get('name'), autocomplete: 'off', spellcheck: 'false' });
@@ -218,12 +225,13 @@ export class UI {
       col.append(panel);
     } else if (this.mode === 'main') {
       const items = h('div', { class: 'items' });
-      const open = (view: 'create' | 'join' | 'settings') => () => {
+      const open = (view: 'create' | 'join' | 'settings' | 'check') => () => {
         this.view = view;
         this.renderMenu();
+        if (view === 'check') this.diag?.start();
       };
       if (this.inviteCode) items.append(this.btn('menu.joinCode', 'item invite', open('join'), { code: this.inviteCode }));
-      items.append(this.btn('menu.create', 'item', open('create')), this.btn('menu.join', 'item', open('join')), this.btn('menu.settings', 'item', open('settings')));
+      items.append(this.btn('menu.create', 'item', open('create')), this.btn('menu.join', 'item', open('join')), this.btn('menu.settings', 'item', open('settings')), this.btn('nd.open', 'item', open('check')));
       col.append(this.logo(), items, status());
     } else {
       col.append(
@@ -361,6 +369,7 @@ export class UI {
           h('span', { class: 'crew-name' }, r.name),
           r.role ? h('span', { class: 'crew-role' }, r.role) : null,
           h('span', { class: 'bars' + (r.talking ? ' on' : '') }, h('i'), h('i'), h('i')),
+          r.noVoice ? h('span', { class: 'nd-novoice', title: t('hud.noVoice') }, t('hud.noVoice')) : null,
           meta ? h('span', { class: 'crew-meta' }, meta) : null,
         ),
       );

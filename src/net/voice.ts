@@ -20,6 +20,8 @@ interface Remote {
   level: number;
   talking: boolean;
   retryAt: number;
+  /** Since when this player has had no audio (ms, performance.now); 0 while their voice plays. */
+  silentSince: number;
 }
 
 export type MicState = 'off' | 'live' | 'muted' | 'ptt';
@@ -141,7 +143,7 @@ export class Voice {
     }
     for (const p of peers) {
       if (this.remotes.has(p.pid)) continue;
-      const r: Remote = { pid: p.pid, peerId: p.peerId, call: null, el: null, source: null, analyser: null, gain: null, panner: null, level: 0, talking: false, retryAt: 0 };
+      const r: Remote = { pid: p.pid, peerId: p.peerId, call: null, el: null, source: null, analyser: null, gain: null, panner: null, level: 0, talking: false, retryAt: 0, silentSince: performance.now() };
       this.remotes.set(p.pid, r);
       const orphan = this.orphanCalls.get(p.peerId);
       if (orphan) {
@@ -179,6 +181,7 @@ export class Voice {
       if (r.call !== call) return;
       r.call = null;
       this.detach(r);
+      r.silentSince = performance.now();
       r.retryAt = performance.now() + 2500;
     };
     call.on('close', lost);
@@ -190,6 +193,7 @@ export class Voice {
 
   private attach(r: Remote, stream: MediaStream) {
     this.detach(r);
+    r.silentSince = 0;
     const c = this.audio.ctx;
     // The <audio> element plays the voice in radio mode (most reliable path for
     // echo cancellation). It must exist even when muted, or Chrome delivers
@@ -296,6 +300,15 @@ export class Voice {
         this.place(r);
       }
     }
+  }
+
+  /**
+   * True if this player is in the crew (data works) but their voice has not played for a while:
+   * the audio link failed, usually a strict network without relay. The grace period covers call set-up.
+   */
+  noVoice(pid: string, graceMs = 15000): boolean {
+    const r = this.remotes.get(pid);
+    return !!r && !r.el && r.silentSince > 0 && performance.now() - r.silentSince > graceMs;
   }
 
   connectedCount(): number {

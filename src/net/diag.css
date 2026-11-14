@@ -1,0 +1,123 @@
+/* Connection check (src/net/diag.ts) and the "no sound" note in the crew list. */
+.nd-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 22px 24px 20px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  max-height: 80vh;
+  overflow-y: auto;
+}
+.nd-lede {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--dim);
+}
+.nd-steps {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+}
+.nd-step {
+  display: grid;
+  grid-template-columns: 18px 1fr;
+  column-gap: 10px;
+  font-size: 14px;
+}
+.nd-mark {
+  width: 10px;
+  height: 10px;
+  margin-top: 5px;
+  border-radius: 50%;
+  border: 1px solid var(--faint);
+}
+.nd-step.run .nd-mark {
+  border-color: var(--accent);
+  background: var(--accent);
+  animation: nd-pulse 0.9s ease-in-out infinite alternate;
+}
+.nd-step.ok .nd-mark {
+  border-color: var(--ok);
+  background: var(--ok);
+}
+.nd-step.warn .nd-mark {
+  border-color: var(--warn);
+  background: var(--warn);
+}
+.nd-step.bad .nd-mark {
+  border-color: var(--danger);
+  background: var(--danger);
+}
+@keyframes nd-pulse {
+  from {
+    opacity: 0.35;
+  }
+  to {
+    opacity: 1;
+  }
+}
+.nd-label {
+  font-weight: 600;
+  color: var(--text);
+}
+.nd-detail {
+  grid-column: 2;
+  font-size: 13px;
+  color: var(--dim);
+  line-height: 1.45;
+}
+.nd-level {
+  grid-column: 2;
+  height: 4px;
+  margin-top: 5px;
+  background: var(--line);
+}
+.nd-level i {
+  display: block;
+  height: 100%;
+  width: 0;
+  background: var(--ok);
+  transition: width 0.08s linear;
+}
+.nd-verdict {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+}
+.nd-verdict:empty {
+  display: none;
+}
+.nd-v {
+  font-size: 14px;
+  line-height: 1.45;
+  padding-left: 12px;
+  border-left: 3px solid var(--faint);
+  color: var(--text);
+}
+.nd-v.ok {
+  border-left-color: var(--ok);
+}
+.nd-v.warn {
+  border-left-color: var(--warn);
+}
+.nd-v.bad {
+  border-left-color: var(--danger);
+}
+.nd-actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.nd-novoice {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--warn);
+  white-space: nowrap;
+}
