@@ -1,102 +1,590 @@
-/* First-person job HUD (src/game/job/director.ts). Compact, top centre, never takes the pointer. */
-.jb-hud {
-  position: absolute;
-  top: 14px;
-  left: 50%;
-  transform: translateX(-50%);
-  width: min(520px, calc(100vw - 32px));
-  padding: 10px 14px 12px;
-  background: rgba(10, 12, 14, 0.72);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: 6px;
-  color: #e8e6e1;
-  font: 400 13px/1.35 Inter, system-ui, sans-serif;
-  pointer-events: none;
-  z-index: 30;
+/* First-person job HUD (src/game/job/hud.ts). As little as possible on screen; nothing takes the pointer
+   except the glass pop-up (clickable when the pointer happens to be free). Palette of the planning round. */
+#ui {
+  --jb-tx: #ece7df;
+  --jb-tx2: #b3ab9e;
+  --jb-acc: #e9b63a;
+  --jb-ok: #7fd083;
+  --jb-bad: #ff7a68;
+  --jb-glass: rgba(13, 12, 11, 0.55);
+  --jb-line: rgba(255, 255, 255, 0.14);
+  --jb-hd: 'Barlow Condensed', 'Arial Narrow', sans-serif;
+  --jb-bd: 'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
 }
-.jb-hud.hidden,
-.jb-marker.hidden {
+.jb-top.hidden,
+.jb-meters.hidden,
+.jb-pop.hidden,
+.jb-log.hidden,
+.jb-intro.hidden,
+.jb-edge.hidden,
+.jb-prompt.hidden,
+.jb-rescue.hidden,
+.jb-alarm.hidden,
+.jb-obj.hidden {
   display: none;
 }
-.jb-stats {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px 14px;
-  font-size: 12px;
-  color: #a9a59b;
-  margin-bottom: 6px;
+/* during the run the level's own objective (top left) gives way to the meters */
+#ui.jb-run .objective {
+  display: none;
 }
-.jb-stats b {
-  color: #f3efe6;
-  font-weight: 600;
-}
-.jb-meter {
-  display: inline-flex;
-  gap: 2px;
-  vertical-align: middle;
-}
-.jb-meter i {
-  width: 6px;
-  height: 9px;
-  background: rgba(255, 255, 255, 0.12);
-}
-.jb-meter i.on {
-  background: #d7c27a;
-}
-.jb-meter i.hi {
-  background: #e0654f;
-}
-.jb-alarm {
-  color: #ff6b57;
-  font-weight: 700;
-}
-.jb-beat {
-  font: 700 17px/1.2 'Barlow Condensed', sans-serif;
-  letter-spacing: 0.02em;
-  text-transform: uppercase;
-  margin-bottom: 2px;
-}
-.jb-line {
-  color: #cfcac0;
-}
-.jb-line.good {
-  color: #8fd19e;
-}
-.jb-line.bad {
-  color: #ff8a78;
-}
-.jb-line.warn {
-  color: #e9c46a;
-}
-.jb-who {
-  margin-top: 6px;
-  color: #a9a59b;
-  font-size: 12px;
-}
-.jb-obj {
-  margin-top: 6px;
-  padding-top: 6px;
-  border-top: 1px solid rgba(255, 255, 255, 0.1);
-  font-weight: 600;
-  color: #f2d27a;
-}
-.jb-marker {
+
+/* ---------------------------------------------------------------- objective, top centre */
+.jb-top {
   position: absolute;
-  transform: translate(-50%, -100%);
+  top: 22px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: min(760px, calc(100vw - 32px));
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 2px;
+  gap: 4px;
+  text-align: center;
+  pointer-events: none;
+  z-index: 30;
+  color: var(--jb-tx);
+  font-family: var(--jb-bd);
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.9), 0 0 14px rgba(0, 0, 0, 0.75);
+  /* a soft shade so the lines stay readable over bright parts of the scene */
+  padding-bottom: 10px;
+  background: radial-gradient(ellipse 50% 70% at 50% 40%, rgba(0, 0, 0, 0.32), rgba(0, 0, 0, 0) 100%);
+}
+.jb-obj {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  padding: 6px 18px 7px;
+  border-radius: 10px;
+  background: rgba(13, 12, 11, 0.42);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  font: 700 30px/1.1 var(--jb-hd);
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: #f6f1e7;
+  max-width: 100%;
+}
+.jb-obj.task {
+  color: #ffd670;
+}
+.jb-arrow {
+  display: none;
+  width: 22px;
+  height: 22px;
+  flex: none;
+  transition: transform 0.08s linear;
+}
+.jb-obj.far .jb-arrow {
+  display: block;
+}
+.jb-arrow svg,
+.jb-edge svg {
+  width: 100%;
+  height: 100%;
+  fill: var(--jb-acc);
+  filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.8));
+}
+.jb-dist {
+  color: var(--jb-acc);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.jb-dist:empty {
+  display: none;
+}
+.jb-dist::before {
+  content: '·';
+  margin-right: 10px;
+  color: var(--jb-tx2);
+}
+.jb-sub {
+  font: 500 17px/1.3 var(--jb-bd);
+  color: var(--jb-tx);
+}
+.jb-sub:empty {
+  display: none;
+}
+.jb-event {
+  margin-top: 6px;
+  min-height: 24px;
+  font: 600 16px/1.35 var(--jb-bd);
+  color: #fff;
+  max-width: 100%;
+}
+.jb-event.in {
+  animation: jb-in 0.25s ease-out;
+}
+.jb-event.good {
+  color: var(--jb-ok);
+}
+.jb-event.bad {
+  color: var(--jb-bad);
+}
+.jb-event.choice {
+  color: #ffe2a0;
+}
+.jb-event.wait {
+  color: var(--jb-tx2);
+  font-weight: 500;
+  font-style: italic;
+}
+@keyframes jb-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+}
+
+/* ---------------------------------------------------------------- meters, top left (like the Überblick time bar) */
+.jb-meters {
+  position: absolute;
+  left: 28px;
+  top: 26px;
+  width: 210px;
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  pointer-events: none;
+  z-index: 30;
+  font: 500 13px/1.2 var(--jb-bd);
+  color: var(--jb-tx);
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.85);
+}
+.jb-m {
+  display: grid;
+  grid-template-columns: 44px 1fr;
+  align-items: center;
+  gap: 10px;
+}
+.jb-ml {
+  font-weight: 600;
+}
+.jb-bar {
+  position: relative;
+  height: 8px;
+  background: rgba(27, 25, 22, 0.75);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 2px;
+  overflow: hidden;
+}
+.jb-bar i {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  transition: width 0.4s ease;
+  background: var(--jb-ok);
+}
+.jb-m[data-st='warn'] .jb-bar i {
+  background: var(--jb-acc);
+}
+.jb-m[data-st='open'] .jb-bar i {
+  background: #d2493a;
+}
+.jb-alarm {
+  align-self: flex-start;
+  padding: 2px 10px;
+  border-radius: 10px;
+  border: 1px solid #a8382b;
+  background: rgba(120, 25, 16, 0.75);
+  color: #ffd9d2;
+  font: 700 14px/1.3 var(--jb-hd);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  animation: jb-pulse 1.2s ease-in-out infinite;
+}
+@keyframes jb-pulse {
+  50% {
+    background: rgba(200, 40, 25, 0.85);
+  }
+}
+.jb-tabhint {
+  color: var(--jb-tx2);
+  font-size: 12px;
+}
+.jb-meters kbd,
+.jb-prompt kbd,
+.jb-pop kbd,
+.jb-log kbd {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 24px;
+  height: 22px;
+  padding: 0 5px;
+  box-sizing: border-box;
+  border-radius: 4px;
+  background: #ece7df;
+  color: #16130f;
+  font: 700 12px/1 var(--jb-bd);
+  box-shadow: inset 0 -2px 0 rgba(0, 0, 0, 0.25);
+  text-shadow: none;
+}
+.jb-meters kbd {
+  min-width: 0;
+  height: 18px;
+  font-size: 11px;
+  margin-right: 4px;
+}
+
+/* ---------------------------------------------------------------- glass pop-up (decisions, secret offers) */
+.jb-pop {
+  position: absolute;
+  left: 50%;
+  bottom: 64px;
+  transform: translateX(-50%);
+  width: min(760px, calc(100vw - 32px));
+  box-sizing: border-box;
+  padding: 14px 16px 12px;
+  background: var(--jb-glass);
+  backdrop-filter: blur(14px) saturate(1.1);
+  -webkit-backdrop-filter: blur(14px) saturate(1.1);
+  border: 1px solid var(--jb-line);
+  border-radius: 10px;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.35);
+  color: var(--jb-tx);
+  font-family: var(--jb-bd);
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.6);
+  z-index: 35;
+  animation: jb-up 0.22s ease-out;
+}
+@keyframes jb-up {
+  from {
+    opacity: 0;
+    transform: translate(-50%, 10px);
+  }
+}
+.jb-ph {
+  font: 700 13px/1.2 var(--jb-hd);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--jb-tx2);
+  margin-bottom: 4px;
+}
+.jb-ph.acc {
+  color: var(--jb-acc);
+}
+.jb-q {
+  font: 700 24px/1.15 var(--jb-hd);
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+.jb-qs {
+  margin-top: 3px;
+  font-size: 14px;
+  line-height: 1.35;
+  color: #d8d1c5;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.jb-tags {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+}
+.jb-tag {
+  display: inline-block;
+  font-size: 12.5px;
+  font-weight: 500;
+  line-height: 1.35;
+  padding: 1px 9px;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  color: #d8d1c5;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+  box-sizing: border-box;
+}
+.jb-tag.ok {
+  border-color: #3e7a44;
+  color: #a5e2a8;
+  background: rgba(21, 32, 26, 0.6);
+}
+.jb-tag.bad {
+  border-color: #8a342a;
+  color: #ff9d90;
+  background: rgba(34, 20, 16, 0.6);
+}
+.jb-opts {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 12px;
+}
+.jb-opts.n2 {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+.jb-opts.n1 {
+  grid-template-columns: minmax(0, 1fr);
+}
+.jb-opt {
+  all: unset;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  min-height: 58px;
+  padding: 9px 12px;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  background: rgba(255, 255, 255, 0.05);
+  cursor: pointer;
+  transition: background 0.12s, border-color 0.12s;
+}
+.jb-opt:hover {
+  background: rgba(255, 255, 255, 0.1);
+}
+.jb-opt.pri {
+  border-color: rgba(233, 182, 58, 0.55);
+}
+.jb-opt.on {
+  background: rgba(233, 182, 58, 0.28);
+  border-color: var(--jb-acc);
+}
+.jb-opt kbd {
+  flex: none;
+  min-width: 28px;
+  height: 28px;
+  font-size: 15px;
+}
+.jb-ol {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+}
+.jb-ol b {
+  font-size: 15.5px;
+  font-weight: 600;
+  line-height: 1.25;
+}
+.jb-pct {
+  flex: none;
+  font: 700 30px/1 var(--jb-hd);
+  color: #fff;
+  font-variant-numeric: tabular-nums;
+}
+.jb-pct small {
+  font-size: 17px;
+  margin-left: 1px;
+  color: var(--jb-tx2);
+}
+.jb-timer {
+  height: 3px;
+  margin-top: 12px;
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 2px;
+  overflow: hidden;
+}
+.jb-timer i {
+  display: block;
+  height: 100%;
+  width: 100%;
+  background: var(--jb-acc);
+}
+
+/* ---------------------------------------------------------------- task prompt "E  Schloss knacken" */
+.jb-prompt {
+  position: absolute;
+  left: 50%;
+  top: 62%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 9px 18px 9px 10px;
+  border-radius: 10px;
+  background: var(--jb-glass);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  border: 1px solid rgba(233, 182, 58, 0.55);
+  color: #fff;
+  font: 700 22px/1 var(--jb-hd);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  pointer-events: none;
+  z-index: 31;
+  animation: jb-fade 0.2s ease-out;
+}
+.jb-prompt kbd {
+  min-width: 30px;
+  height: 30px;
+  font-size: 16px;
+}
+@keyframes jb-fade {
+  from {
+    opacity: 0;
+  }
+}
+
+/* ---------------------------------------------------------------- edge arrow (objective off-screen) */
+.jb-edge {
+  position: absolute;
+  width: 34px;
+  height: 34px;
   pointer-events: none;
   z-index: 29;
-  color: #f2d27a;
-  font: 600 12px/1 Inter, system-ui, sans-serif;
-  text-shadow: 0 1px 2px #000;
+  opacity: 0.9;
 }
-.jb-marker i {
-  width: 12px;
-  height: 12px;
-  border: 2px solid #f2d27a;
-  transform: rotate(45deg);
-  box-shadow: 0 0 6px rgba(0, 0, 0, 0.6);
+
+/* ---------------------------------------------------------------- Tab: the log of the run so far */
+.jb-log {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: min(560px, calc(100vw - 32px));
+  max-height: min(70vh, 620px);
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  padding: 14px 18px 12px;
+  background: rgba(13, 12, 11, 0.7);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  border: 1px solid var(--jb-line);
+  border-radius: 10px;
+  color: var(--jb-tx);
+  font: 400 14px/1.4 var(--jb-bd);
+  pointer-events: none;
+  z-index: 36;
+}
+.jb-lt {
+  font: 700 13px/1.2 var(--jb-hd);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--jb-tx2);
+  margin-bottom: 6px;
+}
+.jb-lb {
+  overflow: hidden auto;
+  min-height: 0;
+}
+.jb-lbeat {
+  padding: 6px 0;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+.jb-lbeat h4 {
+  margin: 0 0 2px;
+  font: 700 17px/1.2 var(--jb-hd);
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+}
+.jb-ll {
+  color: #ddd6ca;
+}
+.jb-ll.good {
+  color: var(--jb-ok);
+}
+.jb-ll.bad {
+  color: var(--jb-bad);
+}
+.jb-ll.choice {
+  color: #ffe2a0;
+}
+.jb-lf {
+  margin-top: 8px;
+  color: var(--jb-tx2);
+  font-size: 12px;
+}
+
+/* ---------------------------------------------------------------- intro card (once per session) */
+.jb-intro {
+  position: absolute;
+  left: 50%;
+  top: 42%;
+  transform: translate(-50%, -50%);
+  width: min(520px, calc(100vw - 32px));
+  box-sizing: border-box;
+  padding: 20px 26px 14px;
+  background: rgba(13, 12, 11, 0.62);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  border: 1px solid var(--jb-line);
+  border-radius: 10px;
+  color: var(--jb-tx);
+  text-align: center;
+  pointer-events: none;
+  z-index: 37;
+  animation: jb-fade 0.3s ease-out;
+}
+.jb-intro p {
+  margin: 0 0 8px;
+  font: 600 19px/1.3 var(--jb-bd);
+}
+.jb-intro p:first-child {
+  font: 700 28px/1.15 var(--jb-hd);
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: #ffd670;
+}
+.jb-intro small {
+  display: block;
+  margin-top: 10px;
+  color: var(--jb-tx2);
+  font-size: 12px;
+}
+
+/* ---------------------------------------------------------------- "Stuck? Hold R" (quiet, bottom left above the mic) */
+.jb-rescue {
+  position: absolute;
+  left: 32px;
+  bottom: 56px;
+  max-width: calc(100vw - 64px);
+  color: rgba(236, 231, 223, 0.55);
+  font: 500 12px/1.3 var(--jb-bd);
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.8);
+  pointer-events: none;
+  z-index: 30;
+}
+.jb-rescue.hold {
+  color: var(--jb-acc);
+}
+
+/* ---------------------------------------------------------------- test yard's stand-in skill games (calib-job.ts) */
+.jbl-card {
+  position: absolute;
+  left: 50%;
+  top: 45%;
+  transform: translate(-50%, -50%);
+  padding: 14px 18px;
+  background: var(--jb-glass);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  border: 1px solid var(--jb-line);
+  border-radius: 10px;
+  color: var(--jb-tx);
+  font: 500 15px/1.4 var(--jb-bd);
+  text-align: center;
+  pointer-events: none;
+  z-index: 34;
+}
+.jbl-card.hidden {
+  display: none;
+}
+.jbl-card .jbl-t {
+  font: 700 20px/1.2 var(--jb-hd);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  margin-bottom: 4px;
+}
+
+@media (max-width: 760px) {
+  .jb-obj {
+    font-size: 22px;
+  }
+  .jb-meters {
+    top: auto;
+    bottom: 76px;
+    width: 160px;
+  }
+  .jb-opts {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }

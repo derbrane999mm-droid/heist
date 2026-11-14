@@ -20,6 +20,14 @@ const VIEWS = {
   'door-open': { v: [3.0, K, 0.9, 1.3, 0.05], open: true },
   'dark-yard': { v: [5.2, K, 3.9, 0.6, -0.1], off: true },
   'dark-street': { v: [-2.4, K, 6.2, -1.5, -0.04], off: true },
+  // the interior in the same scene (floor 0.27)
+  front: { v: [-14.6, K, 8.0, 0, 0.02] },
+  'door-in': { v: [-4.0, 0.27, 0.6, -1.57, 0.0], open: true },
+  lager: { v: [-1.2, 0.27, 3.6, 0.75, 0.05] },
+  saal: { v: [-8.4, 0.27, -2.4, 1.57, 0.0] },
+  foyer: { v: [-14.6, 0.27, 3.6, Math.PI, 0.05] },
+  flur: { v: [-13.5, 0.27, -8.6, -1.57, 0.0] },
+  tresor: { v: [-7.2, 0.27, -8.4, -1.9, -0.1] },
 };
 const env = await startServers({ port: 5402, sigPort: 9402 });
 try {

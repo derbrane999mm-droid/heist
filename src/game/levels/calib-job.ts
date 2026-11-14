@@ -13,6 +13,8 @@ import type { GuardSystemLike } from '../job/types';
 import { registerStrings, t } from '../../core/i18n';
 import { h } from '../../ui/ui';
 import '../job/job.css';
+import { createJobSound } from '../job/sound';
+import { createRoles, JOB_TEST_MAP } from '../job/roles';
 
 registerStrings(
   {
@@ -43,8 +45,7 @@ export const JOB_TEST_ANCHORS: Anchors = {
 
 /** A keyboard-driven stand-in for a real skill game (src/game/mech/skill.ts contract). */
 function dummyGame(deps: LevelDeps, id: string): SkillGame {
-  const el = h('div', { class: 'jb-hud jbl-card hidden' });
-  el.style.top = '45%';
+  const el = h('div', { class: 'jbl-card hidden' });
   document.getElementById('ui')!.append(el);
   let cur: { req: SkillRequest; done: (r: SkillResult) => void; t0: number } | null = null;
   const finish = (r: Partial<SkillResult>) => {
@@ -58,7 +59,7 @@ function dummyGame(deps: LevelDeps, id: string): SkillGame {
     id,
     start(req, done) {
       cur = { req, done, t0: performance.now() };
-      el.innerHTML = `<div class="jb-beat">${t('jbl.card', { game: req.game.toUpperCase(), variant: req.variant, d: req.difficulty })}</div><div class="jb-obj">${t('jbl.keys')}</div>`;
+      el.innerHTML = `<div class="jbl-t">${t('jbl.card', { game: req.game.toUpperCase(), variant: req.variant, d: req.difficulty })}</div><div>${t('jbl.keys')}</div>`;
       el.classList.remove('hidden');
     },
     cancel() {
@@ -83,7 +84,7 @@ export function createCalibJob(deps: LevelDeps): Level {
   const { engine, physics, mats: m } = deps;
   const b = new Builder(engine.scene, physics, m, engine.quality);
   engine.scene.background = new THREE.Color(0x0b0d10);
-  engine.scene.fog = new THREE.FogExp2(0x0b0d10, 0.025);
+  engine.scene.fog = new THREE.FogExp2(0x0b0d10, 0.018);
 
   b.box(m.floor, 40, 0.3, 40, 0, -0.15, 0, { tile: 4 });
   // a low "building" outline between the doors and the targets
@@ -115,7 +116,7 @@ export function createCalibJob(deps: LevelDeps): Level {
     });
     signs.push(() => sc.redraw());
   }
-  b.hemisphere(0xb6c0cc, 0x1a1712, 0.9);
+  b.hemisphere(0xb6c0cc, 0x2a2620, 1.7);
   b.point(0xffe3b0, 30, 0, 6, 6, 30);
   b.point(0xffe3b0, 30, 0, 6, -8, 30);
   b.finalize();
@@ -143,8 +144,10 @@ export function createCalibJob(deps: LevelDeps): Level {
     },
   });
   void unregister;
+  const roles = createRoles(deps, { anchors: JOB_TEST_ANCHORS, guards: null, map: JOB_TEST_MAP });
 
   let session: Session | null = null;
+  const sound = createJobSound(deps, { inside: (_x, z) => z < 0, anchors: JOB_TEST_ANCHORS });
   const level: Level & Record<string, unknown> = {
     spawn(i) {
       return { pos: new THREE.Vector3(-1.5 + i, 0.02, 15), yaw: 0 };
@@ -155,12 +158,18 @@ export function createCalibJob(deps: LevelDeps): Level {
     },
     attach(s) {
       session = s;
+      sound.attach(s);
+      roles.attach(s);
     },
     detach() {
       session = null;
+      sound.detach();
+      roles.detach();
       for (const d of Object.values(doors)) d.open = false;
     },
     update(dt, time) {
+      sound.update(dt, time);
+      roles.update(dt, time);
       for (const d of Object.values(doors)) {
         const target = d.open ? 1 : 0;
         if (d.amt === target) continue;
@@ -180,6 +189,8 @@ export function createCalibJob(deps: LevelDeps): Level {
     /** test hooks */
     games,
     guards,
+    sound,
+    roles,
     doors: () => Object.fromEntries(Object.entries(doors).map(([k, d]) => [k, d.open])),
   };
   return level;

@@ -1,0 +1,309 @@
+/* Role panels of the first-person job (src/game/job/roles.ts): the lookout's map, the driver's clock, the shared
+   feed line and the coin ring. Same glass and palette as the run HUD (job.css: --jb-*). */
+.jr-panel.hidden,
+.jr-feed.hidden,
+.jr-ring.hidden,
+.jr-alarmrow.hidden {
+  display: none;
+}
+
+/* ---------------------------------------------------------------- panels, bottom right */
+.jr-panel {
+  position: absolute;
+  right: 28px;
+  bottom: 56px;
+  width: 312px;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 7px;
+  z-index: 29;
+  pointer-events: none;
+  color: var(--jb-tx, #ece7df);
+  font: 500 13px/1.3 var(--jb-bd, system-ui, sans-serif);
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.85);
+}
+.jr-hint {
+  font-weight: 600;
+  font-size: 14px;
+  color: #fff;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.9), 0 0 12px rgba(0, 0, 0, 0.7);
+}
+.jr-card {
+  padding: 10px 12px 12px;
+  border-radius: 10px;
+  background: var(--jb-glass, rgba(13, 12, 11, 0.55));
+  backdrop-filter: blur(14px) saturate(1.1);
+  -webkit-backdrop-filter: blur(14px) saturate(1.1);
+  border: 1px solid var(--jb-line, rgba(255, 255, 255, 0.14));
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.35);
+}
+.jr-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 6px;
+  font: 700 15px/1.1 var(--jb-hd, 'Arial Narrow', sans-serif);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--jb-acc, #e9b63a);
+}
+.jr-sub {
+  font: 500 12px/1.2 var(--jb-bd, system-ui, sans-serif);
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--jb-tx2, #b3ab9e);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---------------------------------------------------------------- the lookout's map */
+.jr-look .jr-card {
+  pointer-events: auto;
+}
+.jr-map {
+  display: block;
+  width: 100%;
+  height: auto;
+  aspect-ratio: 1 / 0.97;
+  overflow: hidden;
+}
+.jr-street {
+  fill: rgba(255, 255, 255, 0.05);
+}
+.jr-yard {
+  fill: rgba(255, 255, 255, 0.07);
+  stroke: rgba(255, 255, 255, 0.18);
+  stroke-width: 0.12;
+}
+.jr-area {
+  font: 600 1.25px var(--jb-bd, system-ui, sans-serif);
+  fill: rgba(236, 231, 223, 0.42);
+  text-anchor: middle;
+  letter-spacing: 0.08px;
+  text-transform: uppercase;
+}
+.jr-bld {
+  fill: rgba(20, 18, 16, 0.6);
+  stroke: rgba(236, 231, 223, 0.75);
+  stroke-width: 0.32;
+}
+.jr-rr {
+  fill: transparent;
+  stroke: rgba(236, 231, 223, 0.32);
+  stroke-width: 0.16;
+  transition: fill 0.2s;
+}
+.jr-room {
+  cursor: pointer;
+}
+.jr-room.on .jr-rr {
+  fill: rgba(255, 90, 60, 0.28);
+  stroke: rgba(255, 122, 104, 0.9);
+}
+.jr-key {
+  fill: #ece7df;
+}
+.jr-room.on .jr-key {
+  fill: #ff7a68;
+}
+.jr-keyt {
+  font: 700 1.5px var(--jb-bd, system-ui, sans-serif);
+  fill: #171513;
+  text-anchor: middle;
+}
+.jr-rn {
+  font: 600 1.25px var(--jb-bd, system-ui, sans-serif);
+  fill: rgba(236, 231, 223, 0.78);
+  text-anchor: middle;
+}
+.jr-door {
+  stroke: var(--jb-acc, #e9b63a);
+  stroke-width: 0.7;
+  stroke-linecap: butt;
+}
+.jr-hatch {
+  fill: none;
+  stroke: var(--jb-acc, #e9b63a);
+  stroke-width: 0.2;
+  stroke-dasharray: 0.35 0.25;
+}
+.jr-van {
+  fill: rgba(236, 231, 223, 0.35);
+  stroke: rgba(236, 231, 223, 0.7);
+  stroke-width: 0.12;
+}
+.jr-me {
+  fill: none;
+  stroke: var(--jb-acc, #e9b63a);
+  stroke-width: 0.3;
+}
+.jr-cone {
+  fill: rgba(255, 214, 112, 0.32);
+}
+.jr-gdot {
+  fill: #ffd670;
+  stroke: #171513;
+  stroke-width: 0.22;
+}
+.jr-guard.st1 .jr-gdot {
+  fill: #ff9a3c;
+}
+.jr-guard.st1 .jr-cone {
+  fill: rgba(255, 154, 60, 0.4);
+}
+.jr-guard.st2 .jr-gdot {
+  fill: #ff4a36;
+}
+.jr-guard.st2 .jr-cone {
+  fill: rgba(255, 74, 54, 0.45);
+}
+.jr-crew circle {
+  fill: #7fd083;
+  stroke: #10140f;
+  stroke-width: 0.2;
+}
+.jr-crew text {
+  font: 800 1.25px var(--jb-bd, system-ui, sans-serif);
+  fill: #0d120c;
+  text-anchor: middle;
+}
+
+/* ---------------------------------------------------------------- the driver's clock */
+.jr-big {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin: 2px 0 6px;
+}
+.jr-big b {
+  font: 700 54px/0.95 var(--jb-hd, 'Arial Narrow', sans-serif);
+  color: #f6f1e7;
+  font-variant-numeric: tabular-nums;
+  min-width: 1.1ch;
+}
+.jr-big span {
+  font: 600 14px/1.25 var(--jb-bd, system-ui, sans-serif);
+  color: var(--jb-tx, #ece7df);
+}
+.jr-big.warn b {
+  color: var(--jb-acc, #e9b63a);
+}
+.jr-big.due b {
+  color: var(--jb-bad, #ff7a68);
+}
+.jr-alarmrow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 7px;
+  font-weight: 600;
+  color: #ffd9d2;
+}
+.jr-tag {
+  padding: 2px 9px;
+  border-radius: 10px;
+  border: 1px solid #a8382b;
+  background: rgba(120, 25, 16, 0.75);
+  font: 700 13px/1.3 var(--jb-hd, 'Arial Narrow', sans-serif);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+.jr-honk {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding-top: 7px;
+  border-top: 1px solid var(--jb-line, rgba(255, 255, 255, 0.14));
+  color: var(--jb-tx2, #b3ab9e);
+}
+.jr-honk i {
+  display: block;
+  height: 4px;
+  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.1);
+  overflow: hidden;
+}
+.jr-honk b {
+  display: block;
+  height: 100%;
+  width: 0;
+  background: var(--jb-acc, #e9b63a);
+}
+.jr-honk.done {
+  color: rgba(179, 171, 158, 0.6);
+}
+.jr-honk.done i {
+  display: none;
+}
+
+/* ---------------------------------------------------------------- feed line, under the run HUD's event line */
+.jr-feed {
+  position: absolute;
+  top: 152px;
+  left: 50%;
+  transform: translateX(-50%);
+  max-width: min(640px, calc(100vw - 32px));
+  padding: 5px 14px 6px;
+  border-radius: 10px;
+  background: var(--jb-glass, rgba(13, 12, 11, 0.55));
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border: 1px solid rgba(255, 122, 104, 0.45);
+  z-index: 30;
+  pointer-events: none;
+  font: 600 16px/1.35 var(--jb-bd, system-ui, sans-serif);
+  color: #ffe0d8;
+  text-align: center;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.85);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.jr-feed.in {
+  animation: jr-in 0.25s ease-out;
+}
+@keyframes jr-in {
+  from {
+    opacity: 0;
+    transform: translate(-50%, -4px);
+  }
+}
+
+/* ---------------------------------------------------------------- coin cooldown ring, next to the crosshair */
+.jr-ring {
+  position: absolute;
+  left: calc(50% + 22px);
+  top: calc(50% + 14px);
+  width: 22px;
+  height: 22px;
+  z-index: 29;
+  pointer-events: none;
+}
+.jr-ring svg {
+  width: 100%;
+  height: 100%;
+  transform: rotate(-90deg);
+}
+.jr-ring circle {
+  fill: none;
+  stroke-width: 2.6;
+}
+.jr-ring-bg {
+  stroke: rgba(0, 0, 0, 0.45);
+}
+.jr-ring-fg {
+  stroke: var(--jb-acc, #e9b63a);
+  stroke-dasharray: 100 100;
+  stroke-linecap: round;
+}
+.jr-ring span {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font: 700 9px/1 var(--jb-bd, system-ui, sans-serif);
+  color: #ece7df;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.9);
+}

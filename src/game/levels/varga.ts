@@ -14,17 +14,24 @@ import { model } from '../models';
 import { registerStrings, t } from '../../core/i18n';
 import type { Level, LevelDeps } from '../level';
 import type { Anchors } from '../mech/skill';
+import type { Session } from '../../net/session';
+import { buildVargaInterior, VARGA_FLOOR } from './varga-interior';
+import { createVargaStage } from '../job/varga-stage';
 
 registerStrings(
   {
     'varga.obj': 'Style sample: have a look around the delivery yard',
     'varga.door': 'Try the delivery door',
     'varga.door.locked': 'Locked. Steel door, no handle on this side.',
+    'varga.plan': 'Plan the job',
+    'varga.obj.job': 'The van: look at it and press E to plan the job',
   },
   {
     'varga.obj': 'Stilprobe: Seht euch im Lieferhof um',
     'varga.door': 'Liefertür versuchen',
     'varga.door.locked': 'Verschlossen. Stahltür, außen kein Drücker.',
+    'varga.plan': 'Einsatz planen',
+    'varga.obj.job': 'Der Transporter: hinsehen und E drücken, um den Einsatz zu planen',
   },
 );
 
@@ -303,17 +310,39 @@ export function createVarga(deps: LevelDeps): Level {
   {
     const T = 0.3;
     const OH = DOOR_Y + DOOR_H; // top of the delivery-door opening
-    b.box(M.facade, T, 6.2, 12.0, -T / 2, 3.1, -7.1); // east wall north of the opening
-    b.box(M.facade, T, 6.2, 3.8, -T / 2, 3.1, 3.0); // east wall south of the opening
+    /** Wall from a0 to a1 along z ('x' wall at x = c) or along x ('z' wall at z = c), height 0..6.2, with rectangular holes. */
+    const holed = (ax: 'x' | 'z', c: number, a0: number, a1: number, holes: { a0: number; a1: number; y0: number; y1: number }[]) => {
+      const put = (s0: number, s1: number, y0: number, y1: number) => {
+        if (s1 - s0 < 0.005 || y1 - y0 < 0.005) return;
+        if (ax === 'x') b.box(M.facade, T, y1 - y0, s1 - s0, c, (y0 + y1) / 2, (s0 + s1) / 2);
+        else b.box(M.facade, s1 - s0, y1 - y0, T, (s0 + s1) / 2, (y0 + y1) / 2, c);
+      };
+      let cur = a0;
+      for (const h of holes.slice().sort((p, q) => p.a0 - q.a0)) {
+        put(cur, h.a0, 0, 6.2);
+        put(h.a0, h.a1, 0, h.y0);
+        put(h.a0, h.a1, h.y1, 6.2);
+        cur = h.a1;
+      }
+      put(cur, a1, 0, 6.2);
+    };
+    // window holes match the interior's linings (varga-interior.ts WINDOWS), so its window panels show from inside
+    const hi = (a: number, w = 0.9) => ({ a0: a - w / 2, a1: a + w / 2, y0: 4.5, y1: 5.0 });
+    const tall = (a: number) => ({ a0: a - 0.65, a1: a + 0.65, y0: 1.8, y1: VARGA_FLOOR + 3.2 - 0.12 });
+    holed('x', -T / 2, -13.1, -1.1, [hi(-5.6), hi(-3.6)]); // east wall north of the opening
+    holed('x', -T / 2, 1.1, 4.9, [hi(1.8), hi(3.6)]); // east wall south of the opening
     b.box(M.facade, T, 6.2 - OH, DOOR_W, -T / 2, (OH + 6.2) / 2, 0); // lintel
     b.box(M.step, T, DOOR_Y, DOOR_W, -T / 2, DOOR_Y / 2, 0); // threshold
-    b.box(M.facade, 21.7, 6.2, T, -11.15, 3.1, 4.9 - T / 2); // street facade
+    // street facade with the front door opening (x -15.7..-13.5, sill at the interior floor)
+    holed('z', 4.9 - T / 2, -22, -0.3, [hi(-1.8), hi(-4.6), tall(-9.0), tall(-11.4), tall(-17.8), tall(-20.2), { a0: -15.7, a1: -13.5, y0: 0, y1: VARGA_FLOOR + 2.4 }]);
+    b.box(M.step, 2.2, VARGA_FLOOR, T, -14.6, VARGA_FLOOR / 2, 4.9 - T / 2); // front door sill
     b.box(M.facade, T, 6.2, 17.4, -22 + T / 2, 3.1, -4.1); // west
     b.box(M.facade, 21.7, 6.2, T, -11.15, 3.1, -13.1 + T / 2); // north
     b.box(M.facade, 22, 0.2, 18, -11, 6.1, -4.1); // roof slab
   }
   b.box(M.coping, 22.12, 0.14, 18.12, -11, 6.27, -4.1, N);
-  b.box(M.plinth, 22, 0.55, 0.05, -11, KERB + 0.27, 4.925, N);
+  b.box(M.plinth, 6.3, 0.55, 0.05, -18.85, KERB + 0.27, 4.925, N); // street plinth, interrupted by the front door
+  b.box(M.plinth, 13.5, 0.55, 0.05, -6.75, KERB + 0.27, 4.925, N);
   b.box(M.plinth, 0.05, 0.55, 11.6, 0.025, KERB + 0.27, -0.9, N);
 
   /** Window in the east wall (x = 0), facing +x. */
@@ -353,14 +382,14 @@ export function createVarga(deps: LevelDeps): Level {
   // main entrance (far west, x about -14.6): glass doors, canopy, plaque
   {
     const x = -14.6;
-    b.box(M.glass, 2.2, 2.6, 0.03, x, KERB + 1.3, 4.912, N);
-    b.box(M.darkSteel, 0.05, 2.6, 0.06, x, KERB + 1.3, 4.93, N);
+    // the opening itself: the interior's wooden double door stands in it (varga-interior.ts)
     b.box(M.darkSteel, 2.3, 0.06, 0.08, x, KERB + 2.63, 4.93, N);
     b.box(M.darkSteel, 3.2, 0.12, 1.3, x, 3.2, 5.55, N);
     b.glowBox(0xffd9a8, 0.18, 0.012, 0.18, x - 0.8, 3.135, 5.55, 2.2);
     b.glowBox(0xffd9a8, 0.18, 0.012, 0.18, x + 0.8, 3.135, 5.55, 2.2);
     b.glowBox(0x2bd46a, 0.36, 0.13, 0.02, x, KERB + 2.85, 4.9, 1.6); // exit sign inside
     b.box(M.step, 3.2, 0.14, 0.5, x, KERB + 0.07, 5.15, N);
+    ramp('z', 5.45, KERB, 4.9, VARGA_FLOOR, x, 3.2); // walkable: pavement -> step -> sill
     b.decal(0.62, 0.42, x + 1.65, 1.65, 4.93, 0, 400, (c, w, h) => {
       c.fillStyle = '#b39a66';
       c.fillRect(0, 0, w, h);
@@ -1045,6 +1074,10 @@ export function createVarga(deps: LevelDeps): Level {
     b.collider(VX, 1.25, VZ, 6.1, 2.5, 2.05);
   }
 
+  // ================================================================ interior
+  // The auction house's rooms in the same scene (6 point lights, no shadows); the shell above is its outer walls.
+  const interior = buildVargaInterior(b, deps, { shell: true });
+
   // ================================================================ lights
   // Exterior budget: 4 lights (2 with shadows). The interior (varga-interior.ts)
   // shares the scene and uses the rest; the far street lamps, the car park tubes
@@ -1059,6 +1092,18 @@ export function createVarga(deps: LevelDeps): Level {
 
   b.finalize();
   engine.captureEnvironment(new THREE.Vector3(2.5, 1.6, 4.5), 0.7);
+
+  // planning at the van: the same start as the HQ table (lineup first for a crew without roles)
+  const vanProxy = new THREE.Mesh(new THREE.BoxGeometry(6.5, 2.7, 2.45), new THREE.MeshBasicMaterial({ visible: false }));
+  vanProxy.position.set(VX, 1.3, VZ);
+  b.group.add(vanProxy);
+  interactions.add({
+    id: 'varga.plan',
+    object: vanProxy,
+    range: 2.6,
+    prompt: () => (deps.plan && session && !deps.plan.running() ? t('varga.plan') : null),
+    onUse: () => deps.plan?.start(),
+  });
 
   interactions.add({
     id: 'varga.door',
@@ -1083,8 +1128,17 @@ export function createVarga(deps: LevelDeps): Level {
     if (doorCollider) physics.setEnabled(doorCollider, !open);
   };
   doorControl = setDoor;
-  const level: Level & { openDeliveryDoor(open: boolean): void } = {
+  // the first-person job on this location (src/game/job): lock, safe, guards, doors
+  const stage = createVargaStage(deps, { exterior: VARGA_ANCHORS, openDeliveryDoor: setDoor, interior });
+  let session: Session | null = null;
+  const level: Level & Record<string, unknown> & { openDeliveryDoor(open: boolean): void } = {
     openDeliveryDoor: setDoor,
+    /** test hooks */
+    interior,
+    stage,
+    games: stage.games,
+    guards: stage.guards,
+    anchors: stage.anchors,
     spawn(index) {
       const [x, z] = spawns[index % 4];
       return { pos: new THREE.Vector3(x, 0, z), yaw: 0.12 };
@@ -1095,10 +1149,24 @@ export function createVarga(deps: LevelDeps): Level {
       cam.position.set(5.5 + s * 2.5, 2.1, 14.2);
       cam.lookAt(0.8 + s * 1.2, 1.5, 3.2);
     },
-    attach() {},
-    detach() {},
+    attach(s) {
+      session = s;
+      stage.attach(s);
+    },
+    detach() {
+      stage.detach();
+      session = null;
+    },
     update(_dt, time) {
       b.updateShadows(time);
+      interior.update(_dt, time);
+      stage.update(_dt, time);
+      // fell out of the world outside a job (the job director handles it during a run)
+      const pl = deps.player();
+      if (pl && session && pl.position.y < -8 && !deps.plan?.running()) {
+        const sp = level.spawn(0);
+        pl.teleport(sp.pos, sp.yaw);
+      }
       // the camera LED blinks once every two seconds
       ledMat.emissiveIntensity = (time % 2 < 0.12 ? 7 : 1.2) * b.getPower();
       if (doorOpen01 !== doorTarget01) {
@@ -1108,7 +1176,7 @@ export function createVarga(deps: LevelDeps): Level {
       }
     },
     objective() {
-      return [t('varga.obj')];
+      return deps.plan?.running() ? [] : [t(deps.plan ? 'varga.obj.job' : 'varga.obj')];
     },
     redraw() {},
   };

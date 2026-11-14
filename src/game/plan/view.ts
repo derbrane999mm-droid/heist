@@ -338,6 +338,7 @@ export class PlanView {
   private ph_stake(p: any, me: Role | null) {
     const mine = me === 'gambler';
     let h = `<div class="kicker">${this.K('ph.stake.kicker', { who: this.ctx(p).name('gambler') })}</div><h2>${this.K('ph.stake.title')}</h2><p class="lead">${this.K('ph.stake.lead')}</p>`;
+    if (p.attention0 > 0 && p.attention0 < 3) h += `<p class="pl-muted">${this.K('ph.stake.carry0', { n: p.attention0 })}</p>`;
     if (p.attention0 >= 3) h += `<p class="pl-muted">${this.K('ph.stake.carry', { n: p.attention0 })}</p>`;
     h += '<div class="cards">' + STAKE_ORDER.map((id) => this.card({ sel: p.stake === id, ro: !mine, data: `data-stake="${id}"`, title: this.K(`stake.${id}.name`), text: this.K(`stake.${id}.text`), px: this.K(`stake.${id}.tag`), details: this.K(`stake.${id}.details`), dk: 'st' + id })).join('') + '</div>';
     h += mine ? `<div class="btnrow"><button class="pl-btn pri" data-act="confirm">${this.K('ph.stake.go', { s: pt('stake.' + p.stake + '.name') })}</button></div>` : this.waitBtn(p, 'gambler');
@@ -662,6 +663,7 @@ export class PlanView {
   private ph_debrief(p: any, me: Role | null) {
     const r = p.result;
     if (!r) return '';
+    if (p.ended && p.evening) return this.eveningBlock(p, me);
     const nm = (x: string | null) => (x ? this.name(p, x) : '');
     let h = `<div class="kicker">${this.K('ph.debrief.kicker')}</div><div class="grade"><div class="g ${r.grade[0]}">${r.grade[0]}</div><div><h2>${this.K(r.grade[1])}</h2><div class="pl-muted">${this.K('ph.debrief.net')} <b class="num">${eur(r.net)}</b></div></div></div>`;
     const money = `<table class="money"><tr><td>${this.K('ph.debrief.loot', { m: r.mult.toFixed(1).replace('.', ','), s: pt('stake.' + r.stake + '.name') })}</td><td>${eur(r.loot)}</td></tr>${r.lostShare ? `<tr><td>${this.K('ph.debrief.lost')}</td><td>−${eur(r.lostShare)}</td></tr>` : ''}${r.cut ? `<tr><td>${this.K('ph.debrief.cut')}</td><td>−${eur(r.cut)}</td></tr>` : ''}${r.bail ? `<tr><td>${this.K('ph.debrief.bail')}</td><td>−${eur(r.bail)}</td></tr>` : ''}<tr><td>${this.K('ph.debrief.spent')}</td><td>−${eur(r.spent)}</td></tr><tr class="sum"><td>${this.K('ph.debrief.net').replace(/:$/, '')}</td><td>${eur(r.net)}</td></tr></table><p>${this.K('ph.debrief.att', { a: r.attention })} ${this.K(r.attention >= 3 ? 'ph.debrief.carryHot' : 'ph.debrief.carry', { m: eur(r.nextBudget), a: r.attention })}</p>`;
@@ -697,8 +699,39 @@ export class PlanView {
       const said = u.wrong ? this.K('ph.debrief.said', { src: pt('sc.' + u.src + '.name'), v: pt('fact.' + u.k + '.' + u.wrong) }) + ' ' : '';
       h += `<div class="unk"><div class="h"><b>${this.K('fact.' + u.k)}: ${this.K('fact.' + u.k + '.' + u.value)}</b>${u.wrong ? `<span class="tag bad">${this.K('ph.debrief.rumourWrong')}</span>` : ''}</div><div class="c">${u.impact.map((x: Txt) => this.T(p, x)).join(' ')}</div>${this.det(said + (u.hint ? this.T(p, u.hint) : this.K('ph.debrief.noHint')), pt('ph.debrief.helped'), 'hint' + u.k)}</div>`;
     }
-    h += `<div class="btnrow"><button class="pl-btn pri" data-act="close">${this.K('ui.close')}</button></div><p class="pl-muted small">${this.K('ui.closeHint')}</p>`;
+    h += this.eveningBlock(p, me);
     return h;
+  }
+
+  /** "Der Abend bisher" and the buttons that go on from a debrief (or the final ranking once the evening is over). */
+  private eveningBlock(p: any, me: Role | null) {
+    const ev = p.evening;
+    const close = `<button class="pl-btn" data-act="close">${this.K('ui.close')}</button>`;
+    if (!ev) return `<div class="btnrow">${close}</div><p class="pl-muted small">${this.K('ui.closeHint')}</p>`;
+    const mine = this.s?.pid;
+    const rows = (ev.players as any[]).map((x, i) => {
+      const bits: string[] = [];
+      if (x.caught) bits.push(this.K('ev.caught', { n: x.caught }));
+      if (x.hits + x.misses) bits.push(this.K('ev.accuse', { h: x.hits, n: x.hits + x.misses }));
+      return `<tr class="${x.key === mine ? 'me' : ''}${i === 0 ? ' lead' : ''}"><td class="rk">${i + 1}.</td><td><b>${esc(x.name)}</b>${i === 0 ? ` <span class="tag ok">${this.K('ev.lead')}</span>` : ''}${bits.length ? `<div class="sub2">${bits.join(' · ')}</div>` : ''}</td><td class="num">${p.ended ? '' : eur(x.take)}</td><td class="num">${eur(x.total)}</td></tr>`;
+    }).join('');
+    const n = ev.jobs as number;
+    if (p.ended) {
+      const w = ev.players[0];
+      return `<section class="evening final"><div class="kicker">${this.K('ev.final.kicker')}</div><h2>${this.K(n === 1 ? 'ev.final.title1' : 'ev.final.title', { n })}</h2><table class="rank evt big"><thead><tr><th></th><th>${this.K('ev.col.player')}</th><th></th><th>${this.K('ev.col.total')}</th></tr></thead>${rows}</table><p class="lead">${this.K('ev.final.winner', { who: esc(w.name), m: eur(w.total) })}</p><p class="pl-muted">${this.K('ev.final.pot', { m: eur(ev.pot) })}</p><div class="btnrow">${close}</div></section>`;
+    }
+    const c = ev.carry;
+    let h = `<section class="evening"><h3 class="sub">${this.K('ev.title')}</h3><p class="pl-muted">${this.K(n === 1 ? 'ev.jobs1' : 'ev.jobsN', { n })}</p><table class="rank evt"><thead><tr><th></th><th>${this.K('ev.col.player')}</th><th>${this.K('ev.col.job')}</th><th>${this.K('ev.col.total')}</th></tr></thead>${rows}</table><p class="evcarry">${this.K(c.attention > 0 ? 'ev.carry' : 'ev.carry0', { a: c.attention, m: eur(c.budget) })}</p><div class="btnrow">`;
+    const lead = me === 'brain' || (!!this.s?.isHost && !p.seats.find((x: any) => x.role === 'brain')?.pid && !!me);
+    if (lead) {
+      h += `<button class="pl-btn pri" data-act="next">${this.K('ev.next')}</button>`;
+      if (p.seats.filter((x: any) => x.pid).length >= 2) h += `<button class="pl-btn" data-act="revote">${this.K('ev.revote')}</button>`;
+      h += `<button class="pl-btn" data-act="end">${this.K('ev.end')}</button>${close}</div>`;
+    } else {
+      const host = !!this.s?.isHost && !!me && p.seats.filter((x: any) => x.pid).length >= 2;
+      h += `<span class="pl-muted pl-waitfor">${this.K('ui.waitFor', { who: this.ctx(p).name('brain') })}</span>${host ? `<button class="pl-btn" data-act="revote">${this.K('ev.revote')}</button>` : ''}${close}</div>`;
+    }
+    return h + `</section><p class="pl-muted small">${this.K('ui.closeHint')}</p>`;
   }
 
   // ------------------------------------------------------------------ floor plan (prototype's blueprint, desktop layout)
@@ -828,6 +861,7 @@ export class PlanView {
       this.setOpen(false);
       return;
     }
+    if (d.act === 'next' || d.act === 'revote' || d.act === 'end') return this.act({ t: d.act });
     if (d.act === 'accuse') {
       if (this.accSel) this.act({ t: 'accuse', target: this.accSel });
       return;

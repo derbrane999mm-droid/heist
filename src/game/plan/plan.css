@@ -427,3 +427,17 @@
   .plan-ov .sct-legend{margin-top:8px}
   .plan-ov .pln-h{margin-top:9px}
 }
+
+/* the evening: running ranking after a debrief, and the final ranking */
+.plan-ov .evening {margin-top:22px;padding-top:6px;border-top:2px solid var(--ln)}
+.plan-ov table.evt th {text-align:right;font-weight:600;font-size:12px;letter-spacing:.04em;text-transform:uppercase;color:var(--tx2);padding:4px}
+.plan-ov table.evt th:nth-child(2) {text-align:left}
+.plan-ov table.evt .sub2 {font-size:12px;color:var(--tx2);font-weight:400}
+.plan-ov table.evt tr.lead td.num:last-child {color:var(--acc)}
+.plan-ov .evcarry {margin:10px 0 0;font-weight:600}
+.plan-ov .evening .btnrow {align-items:center}
+.plan-ov .evening.final {border-top:0;margin-top:0}
+.plan-ov .evening.final h2 {margin-bottom:16px}
+.plan-ov table.evt.big td {padding:14px 8px;font-size:20px}
+.plan-ov table.evt.big td .sub2 {font-size:14px}
+.plan-ov table.evt.big td.rk {width:44px}

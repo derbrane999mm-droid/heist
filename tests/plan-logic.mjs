@@ -646,5 +646,101 @@ check('every text key from the step machine exists in the German table', missing
   check('skill texts exist', ['ln.skillOk', 'ln.skillNo', 'ln.skillSlow'].every(hasText));
 }
 
+// ---------------------------------------------------------------------------
+// The evening: running totals over several jobs, carry-over, leak check
+// ---------------------------------------------------------------------------
+{
+  const BASE = E.JOBS.varga.budget;
+  // carry-over rules as plain functions
+  const c1 = E.carryOver(3, 4000, true, BASE);
+  check('carry: attention cools by one, budget = base + 10 % of a positive clean pot (rounded to 50)', c1.attention === 2 && c1.budget === BASE + 400, JSON.stringify(c1));
+  check('carry: the budget bonus is capped', E.carryOver(0, 90000, true, BASE).budget === BASE + E.CARRY_POT_CAP && E.CARRY_POT_CAP === 1000);
+  check('carry: nothing after a failed job or a pot without profit', E.carryOver(2, 5000, false, BASE).budget === BASE && E.carryOver(2, 0, true, BASE).budget === BASE && E.carryOver(2, -300, true, BASE).budget === BASE);
+  check('carry: attention never below 0 or above 5', E.carryOver(0, 0, true, BASE).attention === 0 && E.carryOver(9, 0, true, BASE).attention === 5);
+
+  const pids = ['pa', 'pb', 'pc', 'pd'];
+  const seatsFor = (rot) => R.map((r, i) => ({ role: r, pid: pids[(i + rot) % 4], name: 'N' + pids[(i + rot) % 4] }));
+  const accuser = (m, now) => {
+    for (const r of R) { const pv = m.priv(r); if (pv.accuse && pv.accuse.choice === null) m.act(r, { t: 'accuse', target: r === 'brain' ? 'gambler' : r === 'gambler' ? 'bait' : 'pass' }, now); }
+  };
+  const play = (seed, seats, evening) => {
+    const m = new E.PlanMachine({ seed, seats, times: FAST, evening }, 0);
+    let now = 0;
+    for (let i = 0; i < 20000 && m.phase !== 'debrief'; i++) { now += 100; m.tick(now); accuser(m, now); }
+    return m;
+  };
+
+  // first job: nothing carried, and an explicit "no evening" changes nothing
+  const a = play(11, seatsFor(0), undefined), b = play(11, seatsFor(0), null);
+  const strip = (p) => { const q = JSON.parse(JSON.stringify(p)); delete q.evening; return JSON.stringify(q); };
+  check('first job: attention 0, base budget, identical with and without an evening object', a.S.attention0 === 0 && a.pub().budget !== undefined && strip(a.pub()) === strip(b.pub()) && new E.PlanMachine({ seed: 5, seats: seatsFor(0) }, 0).S.budget === BASE && new E.PlanMachine({ seed: 5, seats: seatsFor(0) }, 0).S.attention0 === 0);
+  check('first job: pub() carries the evening as null, after the debrief as 1 job', a.evening0 === null && a.pub().evening.jobs === 1);
+
+  // three jobs, roles rotated between jobs: totals are keyed by player, not by seat
+  let ev = null, m = null;
+  const sum = { take: {}, caught: {}, hits: {}, misses: {} }, nets = [];
+  const carried = [];
+  for (let j = 0; j < 3; j++) {
+    m = play(21 + j * 7, seatsFor(j), ev);
+    const r = m.S.result;
+    carried.push({ att0: m.S.attention0, bud0: m.evening0 ? m.evening0.carry.budget : BASE, prevAtt: r.attention });
+    nets.push(r.net);
+    for (const x of r.final) {
+      const pid = m.seats[x.role].pid;
+      sum.take[pid] = (sum.take[pid] || 0) + x.total;
+      if (x.status === 'caught') sum.caught[pid] = (sum.caught[pid] || 0) + 1;
+    }
+    for (const q of r.accusations) if (q.to) { const pid = m.seats[q.from].pid; (q.correct ? sum.hits : sum.misses)[pid] = ((q.correct ? sum.hits : sum.misses)[pid] || 0) + 1; }
+    ev = m.evening;
+  }
+  const byKey = Object.fromEntries(ev.players.map((p) => [p.key, p]));
+  check('evening: 3 jobs counted, crew pot is the sum of the three pots', ev.jobs === 3 && ev.pot === nets.reduce((x, y) => x + y, 0), `${ev.jobs} / ${ev.pot}`);
+  check('evening: every player\'s total is the sum of his three takes, although roles rotated', pids.every((p) => byKey[p] && byKey[p].total === sum.take[p] && byKey[p].jobs === 3), JSON.stringify(ev.players.map((p) => p.total)));
+  check('evening: caught, hits and misses add up per player', pids.every((p) => byKey[p].caught === (sum.caught[p] || 0) && byKey[p].hits === (sum.hits[p] || 0) && byKey[p].misses === (sum.misses[p] || 0)));
+  check('evening: sorted by total, last job\'s take kept', ev.players.every((p, i, a2) => i === 0 || a2[i - 1].total >= p.total) && ev.players.length === 4);
+  check('evening: the next job starts with attention cooled by one', carried[1].att0 === Math.max(0, carried[0].prevAtt - 1) && carried[2].att0 === Math.max(0, carried[1].prevAtt - 1), JSON.stringify(carried));
+  check('evening: carried budget is base plus a bounded bonus', carried.every((c) => c.bud0 >= BASE && c.bud0 <= BASE + E.CARRY_POT_CAP));
+
+  // a failed job gives no budget; a clean profitable one does
+  let failedSeen = 0, cleanSeen = 0, rule = true;
+  for (let s = 1; s <= 120; s++) {
+    const mm = play(s, seatsFor(0), null), r = mm.S.result, nxt = mm.evening.carry;
+    if (!r.success) { failedSeen++; if (nxt.budget !== BASE) rule = false; }
+    else { cleanSeen++; if (nxt.budget !== BASE + Math.min(E.CARRY_POT_CAP, Math.round((r.net * 0.1) / 50) * 50) || nxt.budget < BASE) rule = false; }
+    if (nxt.attention !== Math.max(0, r.attention - 1) || r.nextBudget !== nxt.budget || r.nextAttention !== nxt.attention) rule = false;
+  }
+  check('carry: over 120 simulated jobs failed jobs give nothing, clean ones the capped share', rule && failedSeen > 0 && cleanSeen > 0, `${failedSeen} failed, ${cleanSeen} clean`);
+
+  // the carried attention is really used (3 or more: an extra guard) and the carried budget is the job's budget
+  const hot = new E.PlanMachine({ seed: 3, seats: seatsFor(0), evening: { jobs: 1, pot: 0, players: [], carry: { attention: 3, budget: BASE + 500 } } }, 0);
+  check('carry: a new job starts with the carried attention and budget', hot.S.attention0 === 3 && hot.S.attention === 3 && hot.S.budget === BASE + 500 && hot.pub().attention0 === 3);
+
+  // public view of the evening: names and numbers only, in every phase
+  const allowed = new Set(['key', 'name', 'role', 'bot', 'jobs', 'total', 'take', 'caught', 'hits', 'misses']);
+  const evKeys = (e) => e.players.every((p) => Object.keys(p).every((k) => allowed.has(k))) && Object.keys(e).sort().join() === 'carry,jobs,players,pot';
+  const idleMachine = new E.PlanMachine({ seed: 9, seats: seatsFor(1), times: FAST, evening: ev }, 0);
+  let leakEv = 0, pubs = 0, tt = 0;
+  for (let i = 0; i < 20000 && idleMachine.phase !== 'debrief'; i++) {
+    tt += 100; idleMachine.tick(tt);
+    const pp = idleMachine.pub(); pubs++;
+    const j = JSON.stringify(pp.evening);
+    if (!evKeys(pp.evening) || /facts|"of\.|policeAt|offers|tip/.test(j) || OFFER_IDS.some((id) => j.includes(`"${id}"`))) leakEv++;
+    if (pp.phase !== 'debrief' && /"facts"\s*:/.test(JSON.stringify(pp))) leakEv++;
+  }
+  check('evening: pub() of the evening state holds only names and numbers, in every phase of a job', leakEv === 0 && pubs > 20, `${pubs} views`);
+  check('evening: it survives JSON (save) and validation, and garbage is refused', JSON.stringify(E.loadEvening(JSON.parse(JSON.stringify(ev)))) === JSON.stringify(ev) && E.loadEvening({ jobs: 2, players: [{ key: 'x', role: 'nope' }] }) === null && E.loadEvening(null) === null && E.loadEvening({ jobs: 0, players: [] }) === null);
+
+  // ending the evening: only at the debrief, once
+  check('evening: it can end only at the debrief', !new E.PlanMachine({ seed: 2, seats: seatsFor(0), times: FAST }, 0).endEvening() && m.endEvening() && m.pub().ended === true && !m.endEvening());
+  // a human leaves during the job: his take still counts, under his own key
+  const mm2 = new E.PlanMachine({ seed: 31, seats: seatsFor(0), times: FAST }, 0);
+  mm2.setSeat('hands', null);
+  let t2 = 0;
+  for (let i = 0; i < 20000 && mm2.phase !== 'debrief'; i++) { t2 += 100; mm2.tick(t2); }
+  check('evening: a human who left mid-job keeps his place in the table', mm2.evening.players.some((p) => p.key === 'pc' && !p.bot) && mm2.evening.players.length === 4);
+  const evKeysText = ['ev.title', 'ev.jobs1', 'ev.jobsN', 'ev.col.player', 'ev.col.job', 'ev.col.total', 'ev.lead', 'ev.caught', 'ev.accuse', 'ev.carry', 'ev.carry0', 'ev.next', 'ev.revote', 'ev.end', 'ev.final.kicker', 'ev.final.title', 'ev.final.title1', 'ev.final.winner', 'ev.final.pot', 'ph.stake.carry0'];
+  check('evening texts exist', evKeysText.every(hasText));
+}
+
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);

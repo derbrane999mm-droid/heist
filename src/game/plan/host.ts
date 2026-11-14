@@ -5,7 +5,7 @@
 import type { Session } from '../../net/session';
 import { loadCampaign, saveCampaign } from '../../core/save';
 import { roleOf, lineupRunning } from '../lineup';
-import { PlanMachine, ROLE_ORDER, VARGA, type Role, type Seat, type Times, type Action, type PrivateView } from './logic';
+import { PlanMachine, ROLE_ORDER, VARGA, loadEvening, type Evening, type Role, type Seat, type Times, type Action, type PrivateView } from './logic';
 
 export interface PlanApi {
   /** Start a job for the crew (runs the lineup first if roles are missing). Any crew member may ask; the host decides. */
@@ -27,7 +27,11 @@ export interface FirstPerson {
 }
 
 const BOT_NAMES = ['Bot Kim', 'Bot Alex', 'Bot Sam'];
-const ACTIONS = new Set(['stake', 'confirm', 'scout', 'tool', 'ent', 'tgt', 'up', 'panel', 'post', 'choose', 'offer', 'accuse', 'skill']);
+/** Evening actions are handled here, not by the machine (they start or end a job). */
+const EVENING_ACTIONS = new Set(['next', 'revote', 'end']);
+/** An evening saved longer ago than this is a different evening. */
+const EVENING_MAX_AGE = 10 * 3600 * 1000;
+const ACTIONS = new Set(['next', 'revote', 'end', 'stake', 'confirm', 'scout', 'tool', 'ent', 'tgt', 'up', 'panel', 'post', 'choose', 'offer', 'accuse', 'skill']);
 
 /** Replicated state at path 'plan': the machine's public view, or a waiting marker. */
 export type PlanPub = ReturnType<PlanMachine['pub']> & { job: number };
@@ -42,6 +46,11 @@ export class PlanController implements PlanApi {
   /** pid -> seat, to give a seat back when its player rejoins. */
   private seatOf = new Map<string, Role>();
   private saved = false;
+  /** The evening so far (jobs finished), saved with the campaign; null before the first job or after "Abend beenden". */
+  private evening: Evening | null = null;
+  private eveningLoaded = false;
+  /** the lineup was started again between two jobs: wait for it to show running first */
+  private revoting = false;
   /** first-person job (host): skill checks and beat gate for the next job; null = at the table */
   private fp: FirstPerson | null = null;
   /** Installed by main.ts when the job director exists (see PlanApi.registerStage). */
@@ -56,6 +65,7 @@ export class PlanController implements PlanApi {
       if (!m || !a || typeof a !== 'object' || !ACTIONS.has(String(a.t))) return;
       const role = m.roleOf(pid);
       if (!role) return;
+      if (EVENING_ACTIONS.has(String(a.t))) return this.eveningAct(pid, role, String(a.t));
       if (m.act(role, a as Action, s.hostNow())) this.publish();
     });
     const prev = s.onRoster;
@@ -73,7 +83,7 @@ export class PlanController implements PlanApi {
       }
       if (joined) {
         const r = this.seatOf.get(joined.pid);
-        if (r && !m.seats[r].pid) m.setSeat(r, joined.pid);
+        if (r && !m.seats[r].pid) m.setSeat(r, joined.pid, joined.name);
         this.privSent.delete(joined.pid);
       }
       this.publish();
@@ -87,6 +97,7 @@ export class PlanController implements PlanApi {
     this.s = null;
     this.m = null;
     this.waitingLineup = false;
+    this.revoting = false;
     this.privSent.clear();
     this.seatOf.clear();
   }
@@ -101,6 +112,38 @@ export class PlanController implements PlanApi {
   }
 
   // ------------------------------------------------------------------ host
+
+  /** Wortführer (or the host, when a bot holds that seat) may lead the evening. */
+  private leads(pid: string, role: Role) {
+    return role === 'brain' || (!this.m?.seats.brain.pid && pid === this.s?.pid);
+  }
+
+  private eveningAct(pid: string, role: Role, t: string) {
+    const s = this.s,
+      m = this.m;
+    if (!s || !m || m.phase !== 'debrief' || m.ended || this.waitingLineup) return;
+    if (t === 'next' && this.leads(pid, role)) return this.hostStart();
+    if (t === 'end' && this.leads(pid, role)) {
+      if (m.endEvening()) {
+        this.evening = null;
+        this.eveningLoaded = true;
+        const c = loadCampaign();
+        delete c.evening;
+        saveCampaign(c);
+        this.publish();
+      }
+      return;
+    }
+    if (t === 'revote' && (this.leads(pid, role) || pid === s.pid)) {
+      // the existing lineup again, then the next job starts by itself (several humans only; alone nobody has a role to vote on)
+      const humans = [...s.players.values()].slice(0, 4);
+      if (humans.length < 2 || lineupRunning(s)) return;
+      this.waitingLineup = true;
+      this.revoting = true;
+      s.set('plan', { phase: 'lineup', job: this.job });
+      s.intent('lineup.start');
+    }
+  }
 
   private hostStart() {
     const s = this.s;
@@ -120,6 +163,7 @@ export class PlanController implements PlanApi {
   private begin() {
     const s = this.s!;
     this.waitingLineup = false;
+    this.revoting = false;
     const humans = [...s.players.values()].slice(0, 4);
     const seats: Seat[] = [];
     if (humans.length === 1) seats.push({ role: 'brain', pid: humans[0].pid, name: humans[0].name });
@@ -131,11 +175,17 @@ export class PlanController implements PlanApi {
     for (const r of ROLE_ORDER) if (!seats.some((x) => x.role === r)) seats.push({ role: r, pid: null, name: BOT_NAMES[b++ % BOT_NAMES.length] });
     const times: Partial<Times> = (window as any).__nvPlanTimes ?? {};
     const seed = Number((window as any).__nvPlanSeed) || Math.floor(Math.random() * 1e9) + 1;
+    if (!this.eveningLoaded) {
+      this.eveningLoaded = true;
+      const c = loadCampaign();
+      const ev = loadEvening(c.evening);
+      this.evening = ev && Date.now() - (Number((c.evening as any)?.at) || 0) < EVENING_MAX_AGE ? ev : null;
+    }
     this.job++;
     this.saved = false;
     this.privSent.clear();
     this.seatOf.clear();
-    this.m = new PlanMachine({ seed, seats, times, skills: !!this.fp?.skills }, s.hostNow());
+    this.m = new PlanMachine({ seed, seats, times, skills: !!this.fp?.skills, evening: this.evening }, s.hostNow());
     this.m.gate = this.fp?.gate ?? null;
     s.emit('sfx', { n: 'ui' });
     this.publish();
@@ -147,7 +197,9 @@ export class PlanController implements PlanApi {
     if (this.waitingLineup) {
       const l = s.get<any>('lineup');
       const humans = [...s.players.values()].slice(0, 4);
-      if (l && l.phase === 'done' && !l.preview && humans.every((p) => roleOf(s, p.pid))) this.begin();
+      if (this.revoting && humans.length < 2) this.begin();
+      else if (this.revoting && !lineupRunning(s) && !(l && l.phase === 'done' && !l.preview && humans.every((p) => roleOf(s, p.pid)))) s.intent('lineup.start');
+      else if (l && l.phase === 'done' && !l.preview && humans.every((p) => roleOf(s, p.pid))) this.begin();
       else if (humans.length === 1) this.begin();
       return;
     }
@@ -168,6 +220,8 @@ export class PlanController implements PlanApi {
       const r = m.summaryForSave();
       if (r) {
         const c = loadCampaign();
+        this.evening = m.evening;
+        if (m.evening) c.evening = { ...m.evening, at: Date.now() };
         const prev = c.missions['plan.varga'];
         c.missions['plan.varga'] = { stars: Math.max(prev?.stars ?? 0, r.stars), best: Math.max(prev?.best ?? -Infinity, r.net) };
         saveCampaign(c);

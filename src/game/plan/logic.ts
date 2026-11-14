@@ -1802,8 +1802,8 @@ export function settle(S: Game) {
     eff.push(...h.notes);
     return { id: o.id, role: o.role, human: o.human, when: o.when, state: o.state, target: o.target || null, partner: o.partner || null, bonus: o.bonus || 0, effects: eff, reclaimed: false };
   });
-  const nextBudget = J.budget + Math.min(1500, Math.round((loot * 0.1) / 50) * 50);
   const success = caught.length === 0 && net > 0;
+  const co = carryOver(att, net, success, J.budget);
   const active = Math.max(R.activeMax, S.offers.filter((o) => o.state === 'accepted' && o.applied).length);
   S.result = {
     bail,
@@ -1820,7 +1820,8 @@ export function settle(S: Game) {
     spent: S.spent,
     net,
     attention: att,
-    nextBudget,
+    nextBudget: co.budget,
+    nextAttention: co.attention,
     status: { ...R.status },
     caught: caught.length,
     grade,
@@ -1833,6 +1834,100 @@ export function settle(S: Game) {
     accepted: acc.length,
   };
   return S.result;
+}
+
+// ---------------------------------------------------------------------------
+// The evening: several jobs in a row, one running ranking, consequences that carry over
+// ---------------------------------------------------------------------------
+
+/** The heat cools by this much between two jobs of one evening (attention the crew ended with minus this). */
+export const CARRY_COOL = 1;
+/** Next job's budget = base budget + this share of a positive crew pot of a clean job ... */
+export const CARRY_POT_SHARE = 0.1;
+/** ... but at most this many euros (rounded to 50). A failed job (somebody caught, or no profit) gives nothing. */
+export const CARRY_POT_CAP = 1000;
+
+/** What the next job of the evening starts with: attention (cooled by one) and budget (base plus a bounded share of the last pot). */
+export function carryOver(attention: number, pot: number, success: boolean, baseBudget: number) {
+  const bonus = success && pot > 0 ? Math.min(CARRY_POT_CAP, Math.round((pot * CARRY_POT_SHARE) / 50) * 50) : 0;
+  return { attention: clamp(attention - CARRY_COOL, 0, 5), budget: baseBudget + bonus };
+}
+
+export interface EveningPlayer {
+  /** stable identity: the player's pid; a bot seat is 'bot:<role>' */
+  key: string;
+  name: string;
+  /** seat in the latest job (roles can be re-voted between jobs) */
+  role: Role;
+  bot: boolean;
+  jobs: number;
+  /** total individual take of the evening (after accusations) */
+  total: number;
+  /** this job's take (the latest job) */
+  take: number;
+  caught: number;
+  hits: number;
+  misses: number;
+}
+/** Public, replicated and saved. Numbers and names only: never a hidden fact or an offer. */
+export interface Evening {
+  jobs: number;
+  /** sum of the crew pots (net) of all jobs */
+  pot: number;
+  players: EveningPlayer[];
+  /** what the next job starts with */
+  carry: { attention: number; budget: number };
+}
+
+export function emptyEvening(): Evening {
+  return { jobs: 0, pot: 0, players: [], carry: { attention: 0, budget: JOBS.varga.budget } };
+}
+
+/** Validate an evening read from storage (untrusted); null when it is not usable. */
+export function loadEvening(x: any): Evening | null {
+  if (!x || typeof x !== 'object' || !Array.isArray(x.players) || !(x.jobs > 0)) return null;
+  const n = (v: any) => (Number.isFinite(Number(v)) ? Number(v) : 0);
+  const players: EveningPlayer[] = [];
+  for (const p of x.players.slice(0, 8)) {
+    if (!p || typeof p.key !== 'string' || ROLE_ORDER.indexOf(p.role) < 0) return null;
+    players.push({ key: p.key.slice(0, 64), name: String(p.name ?? '').slice(0, 16), role: p.role, bot: !!p.bot, jobs: n(p.jobs), total: n(p.total), take: n(p.take), caught: n(p.caught), hits: n(p.hits), misses: n(p.misses) });
+  }
+  const c = x.carry || {};
+  return { jobs: Math.floor(n(x.jobs)), pot: n(x.pot), players, carry: { attention: clamp(Math.floor(n(c.attention)), 0, 5), budget: n(c.budget) || JOBS.varga.budget } };
+}
+
+export interface CastSeat {
+  role: Role;
+  pid: string | null;
+  name: string;
+}
+
+/** Add one finished job (a settled result after the accusations) to the evening. Pure: returns a new evening. */
+export function settleEvening(prev: Evening | null, r: any, cast: CastSeat[], baseBudget = JOBS.varga.budget): Evening {
+  const ev: Evening = prev ? JSON.parse(JSON.stringify(prev)) : emptyEvening();
+  const done = new Set<string>();
+  for (const c of cast) {
+    const fin = (r.final as any[]).find((x) => x.role === c.role);
+    const take = fin ? fin.total : 0;
+    const key = c.pid ?? 'bot:' + c.role;
+    let p = ev.players.find((x) => x.key === key);
+    if (!p) ev.players.push((p = { key, name: c.name, role: c.role, bot: !c.pid, jobs: 0, total: 0, take: 0, caught: 0, hits: 0, misses: 0 }));
+    p.name = c.name;
+    p.role = c.role;
+    p.bot = !c.pid;
+    p.jobs++;
+    p.take = take;
+    p.total += take;
+    if (r.status[c.role] === 'caught') p.caught++;
+    for (const a of r.accusations as any[]) if (a.from === c.role && a.to) a.correct ? p.hits++ : p.misses++;
+    done.add(key);
+  }
+  for (const p of ev.players) if (!done.has(p.key)) p.take = 0; // not at this job's table
+  ev.jobs++;
+  ev.pot += r.net;
+  ev.carry = carryOver(r.attention, r.net, r.success, baseBudget);
+  ev.players.sort((a, b) => b.total - a.total);
+  return ev;
 }
 
 // ---------------------------------------------------------------------------
@@ -2079,6 +2174,8 @@ export interface MachineOpts {
   times?: Partial<Times>;
   attention?: number;
   budget?: number;
+  /** The evening so far (before this job). Its carry-over is the start attention and budget unless given explicitly. */
+  evening?: Evening | null;
   /** First-person job: humans play some rolls as skill checks (see SkillStep). Default off. */
   skills?: boolean;
 }
@@ -2119,20 +2216,30 @@ export class PlanMachine {
   gate: ((b: BeatRef, i: number) => boolean) | null = null;
   private gating = -1;
   private gateSince = 0;
+  /** The evening before this job, and (from the debrief on) including it. */
+  evening0: Evening | null;
+  evening: Evening | null;
+  /** The crew ended the evening at this debrief: the final ranking is shown. */
+  ended = false;
+  /** who sat where when the job began (a human who leaves keeps his take) */
+  private cast: CastSeat[];
 
   constructor(o: MachineOpts, now = 0) {
+    this.evening0 = o.evening ?? null;
+    this.evening = this.evening0;
     this.times = { ...TIMES, ...(o.times || {}) };
     this.now = now;
     this.seats = {} as Record<Role, Seat>;
     for (const r of ROLE_ORDER) this.seats[r] = o.seats.find((s) => s.role === r) ?? { role: r, pid: null, name: r };
+    this.cast = ROLE_ORDER.map((r) => ({ role: r, pid: this.seats[r].pid, name: this.seats[r].name }));
     const humans = ROLE_ORDER.filter((r) => this.seats[r].pid);
     this.S = newGame({
       factSeed: o.factSeed ?? o.seed * 13 + 5,
       runSeed: o.seed,
       humans,
       names: Object.fromEntries(ROLE_ORDER.map((r) => [r, this.seats[r].name])),
-      attention: o.attention,
-      budget: o.budget,
+      attention: o.attention ?? o.evening?.carry.attention,
+      budget: o.budget ?? o.evening?.carry.budget,
       privateTips: true,
       skills: !!o.skills,
     });
@@ -2146,8 +2253,9 @@ export class PlanMachine {
     return ROLE_ORDER.find((r) => this.seats[r].pid === pid) ?? null;
   }
   /** A player left (pid null: a bot takes the seat) or came back. */
-  setSeat(role: Role, pid: string | null) {
+  setSeat(role: Role, pid: string | null, name?: string) {
     this.seats[role] = { ...this.seats[role], pid };
+    if (pid) this.cast[ROLE_ORDER.indexOf(role)] = { role, pid, name: name ?? this.cast[ROLE_ORDER.indexOf(role)].name };
     this.touch();
     this.scheduleBot();
   }
@@ -2478,6 +2586,7 @@ export class PlanMachine {
     const S = this.S;
     for (const r of S.humans) if (!(r in choices)) choices[r] = 'pass';
     accuse(S, choices);
+    this.evening = settleEvening(this.evening0, S.result, this.cast, S.job.budget);
     this.enter('debrief');
   }
 
@@ -2607,6 +2716,8 @@ export class PlanMachine {
       plan: { entrance: S.plan.entrance, posts: { ...S.plan.posts }, targets: S.plan.targets.slice(), panel: S.plan.panel },
       preTraces: (S.preTraces || []).slice(),
       summary: pre ? planSummary(S) : null,
+      evening: this.evening,
+      ended: this.ended,
       overview: pre ? overview(S, this.phase === 'shop' ? this.board.tools : S.tools, this.phase === 'plan') : null,
     };
     if (R) {
@@ -2646,6 +2757,14 @@ export class PlanMachine {
     }
     this.pubCache = JSON.parse(JSON.stringify(v));
     return this.pubCache;
+  }
+
+  /** Debrief: the crew calls the evening over (the final ranking shows on every page). */
+  endEvening(): boolean {
+    if (this.phase !== 'debrief' || this.ended) return false;
+    this.ended = true;
+    this.touch();
+    return true;
   }
 
   /** What only `role` may see. */

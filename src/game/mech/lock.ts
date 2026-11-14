@@ -148,7 +148,7 @@ export const createLockGame: SkillGameFactory = (deps: LevelDeps): SkillGame => 
     slipsLabel.textContent = t('lk.slips');
     keysEl.replaceChildren(
       h('span', { class: 'lk-key' }, keycap('Space'), h('span', {}, '/'), keycap('E'), h('span', {}, t('lk.k.set'))),
-      h('span', { class: 'lk-key lk-leave' }, keycap('Esc'), h('span', {}, t('lk.k.leave'))),
+      h('span', { class: 'lk-key lk-leave' }, keycap('Q'), h('span', {}, t('lk.k.leave'))),
     );
     if (!pinsEl.childElementCount) {
       for (let i = 0; i < s.pins.length; i++) {

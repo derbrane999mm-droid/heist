@@ -16,10 +16,10 @@ import type { PlanController } from '../plan/host';
 import type { PlanView } from '../plan/view';
 import type { Anchor, SkillGame, SkillResult } from '../mech/skill';
 import type { BeatRef } from '../plan/logic';
-import { tx, pt, type Lang } from '../plan/texts';
-import { settings } from '../../core/settings';
 import { registerStrings, t } from '../../core/i18n';
 import type { JobStage } from './types';
+import { JobHud } from './hud';
+import type { Input } from '../../core/input';
 
 export type { JobStage, GuardSystemLike, JobPhaseEvent } from './types';
 
@@ -54,6 +54,8 @@ registerStrings(
     'jb.place.lager.goods': 'storeroom',
     'jb.place.post.lookout': 'lookout post',
     'jb.place.van.driver': 'driver seat',
+    'jb.rescue': 'Stuck? Hold R to return to your objective',
+    'jb.rescuing': 'Hold R ...',
   },
   {
     'jb.go': 'Geh zu: {place}',
@@ -85,6 +87,8 @@ registerStrings(
     'jb.place.lager.goods': 'Lager',
     'jb.place.post.lookout': 'Posten',
     'jb.place.van.driver': 'Fahrersitz',
+    'jb.rescue': 'Festgesteckt? R halten: zurück zum Ziel',
+    'jb.rescuing': 'R halten ...',
   },
 );
 
@@ -97,13 +101,32 @@ const GATED = new Set(['bt.in', 'bt.target', 'bt.push', 'bt.out', 'bt.getaway'])
 const SLACK = 1.0;
 /** Walking this far from the skill anchor while the game is open counts as giving up. */
 const LEAVE = 4.0;
+/** Lines of the 'in' beat that say the way in is open (lock picked or failed, crowbar, down through the hatch). */
+const IN_DONE = new Set(['ln.open', 'ln.fumbleDoor', 'ln.lockHolds', 'ln.openSix', 'ln.crow', 'ln.allDown', 'ln.fall']);
+/** Seconds R must be held to be put back at the objective. */
+const RESCUE_HOLD = 1.2;
+/** Below this height the player fell out of the world: put back at once. */
+const FELL_Y = -8;
+type Climb = JobStage['climb'];
+const lineKey = (l: any): string => (l?.x?.k ?? l?.roll?.label?.k ?? '') as string;
+
+/** Has the way in been opened in this run? Derived from replicated state only (late joiners get the same answer). */
+export function entranceOpen(R: any): boolean {
+  if (!R?.beats) return false;
+  const i = R.beats.findIndex((b: any) => b.title.k === 'bt.in');
+  if (i < 0) return false;
+  if (R.beats.length > i + 1) return true;
+  if (R.waitAt && R.waitAt.i > i) return true;
+  return R.beats[i].lines.some((l: any) => IN_DONE.has(lineKey(l)));
+}
 
 /** The stage anchor where a beat happens (null: wherever the crew is). */
-export function beatAnchor(b: { title: { k: string }; target?: string | null }, entrance: string): string | null {
+export function beatAnchor(b: { title: { k: string }; target?: string | null }, entrance: string, climb?: Climb): string | null {
   switch (b.title.k) {
     case 'bt.approach':
       return 'gate';
     case 'bt.in':
+      return climb?.[entrance]?.wait ?? ENTRANCE_ANCHOR[entrance] ?? null;
     case 'bt.out':
       return ENTRANCE_ANCHOR[entrance] ?? null;
     case 'bt.target':
@@ -117,7 +140,9 @@ export function beatAnchor(b: { title: { k: string }; target?: string | null }, 
 }
 
 const flatDist = (a: { x: number; z: number }, b: { x: number; z: number }) => Math.hypot(a.x - b.x, a.z - b.z);
-const esc = (s: unknown) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!);
+let busyNow = false;
+/** A skill game, a decision pop-up or the plan overlay of this player is open (src/game/job/roles.ts ignores its keys then). */
+export const jobBusy = () => busyNow;
 
 export interface DirectorDeps {
   plan: PlanController;
@@ -132,29 +157,37 @@ export class JobDirector {
   private s: Session | null = null;
   private unsub: (() => void)[] = [];
   private priv: any = null;
-  private readonly hud: HTMLElement;
-  private readonly marker: HTMLElement;
-  private hudKey = '';
+  /** everything the player sees during the run (hud.ts) */
+  private readonly ui: JobHud;
   private runJob: unknown = null;
   private doorOpen = '';
   private open: { n: number; game: SkillGame; anchor: Anchor | null } | null = null;
   private sent = new Set<number>();
+  /** this frame: standing at my task's place, game not opened yet */
+  private promptNow = false;
   private froze = false;
   private lastAlert = 0;
   private phaseKey = '';
   private objKey: string | null = null;
   private objAt: Anchor | null = null;
   private v = new THREE.Vector3();
+  private climbedIn: unknown = null;
+  private climbedOut: unknown = null;
+  private rDown = false;
+  private rHeld = 0;
   /** for tests: the last skill result this client sent */
   lastResult: (SkillResult & { n: number }) | null = null;
 
   constructor(private d: DirectorDeps) {
-    this.hud = document.createElement('div');
-    this.hud.className = 'jb-hud hidden';
-    this.marker = document.createElement('div');
-    this.marker.className = 'jb-marker hidden';
-    this.marker.innerHTML = '<i></i><span></span>';
-    d.root.append(this.hud, this.marker);
+    this.ui = new JobHud({ root: d.root, camera: d.camera, act: (a) => this.s?.intent('plan.act', a) });
+    // hold R: back to the objective (own listener: works whatever the level binds)
+    window.addEventListener('keydown', (e) => {
+      if (e.code === 'KeyR' && !e.repeat) this.rDown = true;
+    });
+    window.addEventListener('keyup', (e) => {
+      if (e.code === 'KeyR') this.rDown = false;
+    });
+    window.addEventListener('blur', () => (this.rDown = false));
   }
 
   /** PlanApi.registerStage: a level hands over its stage. Returns the unregister function. */
@@ -186,6 +219,8 @@ export class JobDirector {
     );
     if (s.isHost) s.handle('job.alert', (pid) => this.d.plan.guardAlert(pid));
     this.d.view.hudMode = (p) => !!this.stage && this.inRun(p);
+    // with a stage the planning overlay stays closed for the whole run: decisions and offers are the HUD's glass pop-up
+    this.d.view.needsMe = () => false;
     this.applyHost();
   }
 
@@ -247,7 +282,7 @@ export class JobDirector {
     if (!s || !this.stage || i === 0 || !GATED.has(b.title.k)) return true;
     const p = s.get<any>('plan');
     if (!p?.run || !p.plan) return true;
-    const a = this.anchor(beatAnchor(b, p.run.entrance));
+    const a = this.anchor(beatAnchor(b, p.run.entrance, this.stage?.climb));
     if (!a) return true;
     for (const seat of p.seats) {
       if (!seat.pid || p.plan.posts[seat.role] !== 'inside' || p.run.status[seat.role] === 'caught') continue;
@@ -261,38 +296,103 @@ export class JobDirector {
   // ------------------------------------------------------------------ per frame
 
   update(dt: number, time: number) {
+    busyNow = !!this.open || this.ui.popupOpen() || this.d.view.isOpen();
     const st = this.stage;
     if (st) for (const k in st.games) st.games[k].update(dt, time);
     const s = this.s;
     const p = s?.get<any>('plan');
     if (!s || !st || !this.inRun(p)) {
-      if (this.runJob !== null && (!p || !this.inRun(p))) this.endRun();
+      if (this.runJob !== null && (!p || !this.inRun(p))) this.endRun(!!p && !!st);
       this.hide();
       return;
     }
     if (this.runJob !== p.job) this.startRun(p);
     const R = p.run;
-    // the entrance opens with the beat that gets the crew in
-    if (R.beats.some((b: any) => b.title.k === 'bt.in') && this.doorOpen !== R.entrance) {
+    // the entrance opens once the crew has got it open (lock picked, crowbar, hatch); derived from state every frame
+    const inOpen = entranceOpen(R);
+    if (inOpen && this.doorOpen !== R.entrance) {
       this.doorOpen = R.entrance;
       st.openDoor?.(R.entrance, true);
     }
+    this.climbing(p, inOpen);
     const objective = this.objective(p);
     this.skill(p);
-    this.drawHud(p, objective.text);
-    this.drawMarker(objective.anchor, objective.key);
+    this.drawHud(p, objective, dt);
+    this.rescue(dt, objective.anchor, p);
     const last = R.beats[R.beats.length - 1];
     const pk = `${p.job}|${p.phase}|${R.beats.length}|${objective.key}`;
     if (pk !== this.phaseKey) {
       this.phaseKey = pk;
-      st.onPhase?.({ phase: p.phase, beat: R.beats.length - 1, anchor: last ? beatAnchor(last, R.entrance) : null });
+      st.onPhase?.({ phase: p.phase, beat: R.beats.length - 1, anchor: last ? beatAnchor(last, R.entrance, st.climb) : null });
     }
+  }
+
+  /** Inside crew of this client (free, posted inside)? */
+  private insideMe(p: any): string | null {
+    const me = this.me(p);
+    if (!me || p.plan?.posts?.[me] !== 'inside' || p.run?.status?.[me] === 'caught') return null;
+    return me;
+  }
+
+  /** Roof hatch and similar: place the inside crew in and out (no climbing). */
+  private climbing(p: any, inOpen: boolean) {
+    const R = p.run;
+    const c = this.stage?.climb?.[R.entrance];
+    const pl = this.d.player();
+    const me = this.insideMe(p);
+    if (!c || !pl || !me) return;
+    const i = ['brain', 'gambler', 'hands', 'bait'].indexOf(me);
+    const put = (key: string) => {
+      const a = this.anchor(key);
+      if (!a) return;
+      const ox = ((i % 2) - 0.5) * 0.8;
+      const oz = (Math.floor(i / 2) - 0.5) * 0.8;
+      pl.teleport(new THREE.Vector3(a.x + ox, a.y + 0.02, a.z + oz), a.yaw ?? pl.yaw);
+    };
+    const outShown = R.beats.some((b: any) => b.title.k === 'bt.out');
+    if (outShown) {
+      if (this.climbedOut !== p.job) {
+        this.climbedOut = p.job;
+        if (this.climbedIn === p.job) put(c.exit);
+      }
+    } else if (inOpen && this.climbedIn !== p.job) {
+      this.climbedIn = p.job;
+      put(ENTRANCE_ANCHOR[R.entrance] ?? c.exit);
+    }
+  }
+
+  /** Hold R (or fall out of the world): back to the current objective's place. */
+  private rescue(dt: number, a: Anchor | null, p: any) {
+    const pl = this.d.player();
+    if (!pl) return;
+    const me = this.me(p);
+    const target = a ?? (me && p.plan?.posts?.[me] === 'lookout' ? this.anchor('post.lookout') : null) ?? this.anchor('van');
+    const fell = pl.position.y < FELL_Y;
+    const holding = this.rDown && !pl.frozen && !this.d.view.isOpen();
+    this.rHeld = holding ? this.rHeld + dt : 0;
+    this.ui.setRescue(me ? t(this.rHeld > 0 ? 'jb.rescuing' : 'jb.rescue') : null, this.rHeld > 0);
+    if (!target || (!fell && this.rHeld < RESCUE_HOLD)) return;
+    this.rHeld = 0;
+    this.rDown = false;
+    pl.teleport(new THREE.Vector3(target.x, target.y + 0.05, target.z + 0.3), target.yaw ?? pl.yaw);
+  }
+
+  /** Test hook: what "hold R" does, without the key. */
+  debugRescue() {
+    const s = this.s;
+    const p = s?.get<any>('plan');
+    if (!p || !this.inRun(p)) return false;
+    this.rHeld = RESCUE_HOLD;
+    this.rDown = true;
+    this.rescue(0.001, this.objective(p).anchor, p);
+    return true;
   }
 
   private startRun(p: any) {
     this.runJob = p.job;
     this.doorOpen = '';
     this.sent.clear();
+    this.ui.startRun(p);
     const pl = this.d.player();
     const me = this.me(p);
     if (pl && me) {
@@ -317,9 +417,16 @@ export class JobDirector {
     else g.activate?.(on);
   }
 
-  private endRun() {
+  private endRun(home = false) {
     if (this.runJob === null) return;
     this.runJob = null;
+    // after the job: everyone back at the van before the doors shut (nobody stays locked in)
+    const pl = this.d.player();
+    const van = this.anchor('van');
+    if (home && pl && van && flatDist(pl.position, van) > 6) {
+      const i = Math.floor(Math.random() * 4);
+      pl.teleport(new THREE.Vector3(van.x + (i - 1.5) * 0.7, van.y + 0.02, van.z + 0.4), van.yaw ?? 0);
+    }
     this.closeGame(false);
     if (this.doorOpen) this.stage?.openDoor?.(this.doorOpen, false);
     this.doorOpen = '';
@@ -345,10 +452,10 @@ export class JobDirector {
     if (post === 'lookout') return { key: 'post.lookout', anchor: this.anchor('post.lookout'), text: t('jb.lookout') };
     if (post === 'driver') return { key: 'van.driver', anchor: this.anchor('van.driver'), text: t('jb.driver') };
     let key: string | null = null;
-    if (R.waitAt) key = beatAnchor(R.waitAt, R.entrance);
+    if (R.waitAt) key = beatAnchor(R.waitAt, R.entrance, this.stage?.climb);
     else
       for (let i = R.beats.length - 1; i >= 0 && !key; i--) {
-        key = beatAnchor(R.beats[i], R.entrance);
+        key = beatAnchor(R.beats[i], R.entrance, this.stage?.climb);
       }
     const a = this.anchor(key);
     if (!key || !a) return { key: null, anchor: null, text: '' };
@@ -368,6 +475,7 @@ export class JobDirector {
   // ------------------------------------------------------------------ skill checks
 
   private skill(p: any) {
+    this.promptNow = false;
     const sk = this.mySkill(p);
     if (this.open && (!sk || sk.n !== this.open.n)) this.closeGame(false);
     if (!sk || this.sent.has(sk.n)) return;
@@ -381,8 +489,18 @@ export class JobDirector {
     const game = st.games[sk.game];
     if (!game) return this.send(sk.n, { ok: false, seconds: 0, noise: 0, fumbles: 0, gaveUp: true });
     const a = this.anchor(this.skillKey(p.run, sk.at));
-    if (a && !this.near(pl?.position, a)) return; // "geh zum Tresor": opens on arrival
-    if (this.d.view.isOpen()) return; // a card of mine is open: after it
+    if (a && !this.near(pl?.position, a)) {
+      this.ui.takeE();
+      return; // "geh zum Tresor": the prompt shows on arrival
+    }
+    if (this.d.view.isOpen() || this.ui.popupOpen()) return; // a card of mine is open: after it
+    // at the place: the HUD shows "E  Schloss knacken"; only E opens the game
+    const inp = (this.d.view as unknown as { input?: Input }).input;
+    const e = this.ui.takeE();
+    if (!e && !inp?.codePressed('KeyE')) {
+      this.promptNow = true;
+      return;
+    }
     this.open = { n: sk.n, game, anchor: a };
     if (pl && !pl.frozen) {
       pl.frozen = true;
@@ -425,70 +543,33 @@ export class JobDirector {
 
   // ------------------------------------------------------------------ HUD
 
-  private lang(): Lang {
-    return settings.get('lang') === 'en' ? 'en' : 'de';
-  }
-
-  private drawHud(p: any, objective: string) {
+  private drawHud(p: any, o: { key: string | null; anchor: Anchor | null }, dt: number) {
     const s = this.s!;
-    const R = p.run;
-    const ctx = { lang: this.lang(), name: (r: string) => p.seats?.find((x: any) => x.role === r)?.name ?? pt('role.' + r + '.name') };
-    const wait = R.waitAt ? Math.max(0, Math.ceil((R.waitAt.until - s.hostNow()) / 1000)) : 0;
-    const key = [p.job, p.v, this.lang(), objective, wait, !!this.priv?.skill].join('|');
-    this.hud.classList.remove('hidden');
-    if (key === this.hudKey) return;
-    this.hudKey = key;
-    const beat = R.beats[R.beats.length - 1];
-    const lines = beat ? beat.lines.slice(-2) : [];
-    const line = (l: any) => (l.kind === 'roll' ? `${tx(l.roll.label, ctx)}: ${t(l.roll.ok ? 'jb.yes' : 'jb.no')}` : tx(l.x, ctx));
-    let who = '';
-    if (R.decision) who = t('jb.decides', { who: ctx.name(R.decision.who) });
-    else if (R.skill) who = t(R.skill.game === 'safe' ? 'jb.atSafe' : 'jb.atLock', { who: ctx.name(R.skill.who) });
-    else if (R.waitAt) {
-      const k = beatAnchor(R.waitAt, R.entrance);
-      who = t('jb.waitCrew', { place: k ? t('jb.place.' + k) : '', s: wait });
-    }
-    const meter = Array.from({ length: 10 }, (_, i) => `<i class="${i < R.noise ? 'on' + (i >= 5 ? ' hi' : '') : ''}"></i>`).join('');
-    let st = `<span>${esc(t('jb.minute'))} <b>${R.t}</b></span>`;
-    if (!R.alarmKnown) st += `<span>${esc(t('jb.round'))} <b>${R.t >= R.windowEnd ? esc(t('jb.roundNow')) : esc(t('jb.roundIn', { n: R.windowEnd - R.t }))}</b></span>`;
-    st += `<span>${esc(t('jb.noise'))} <span class="jb-meter">${meter}</span></span>`;
-    if (R.alarmKnown) st += `<span class="jb-alarm">${esc(t('jb.alarm'))}</span>`;
-    this.hud.innerHTML =
-      `<div class="jb-stats">${st}</div>` +
-      (beat ? `<div class="jb-beat">${esc(tx(beat.title, ctx))}</div>` : '') +
-      lines.map((l: any) => `<div class="jb-line ${esc(l.kind === 'roll' ? (l.roll.ok ? 'good' : 'bad') : l.kind)}">${esc(line(l))}</div>`).join('') +
-      (who ? `<div class="jb-who">${esc(who)}</div>` : '') +
-      (objective ? `<div class="jb-obj">${esc(objective)}</div>` : '');
-  }
-
-  private drawMarker(a: Anchor | null, key: string | null) {
     const pl = this.d.player();
-    this.objKey = key;
-    this.objAt = a;
-    if (!a || !pl) {
-      this.marker.classList.add('hidden');
-      return;
-    }
-    const cam = this.d.camera;
-    this.v.set(a.x, a.y + 1.4, a.z).project(cam);
-    if (this.v.z > 1 || this.v.z < -1) {
-      this.marker.classList.add('hidden');
-      return;
-    }
-    const x = Math.min(0.95, Math.max(-0.95, this.v.x));
-    const y = Math.min(0.9, Math.max(-0.9, this.v.y));
-    this.marker.classList.remove('hidden');
-    this.marker.style.left = ((x + 1) / 2) * 100 + '%';
-    this.marker.style.top = ((1 - y) / 2) * 100 + '%';
-    const span = this.marker.lastElementChild as HTMLElement;
-    const txt = Math.round(flatDist(pl.position, a)) + ' m';
-    if (span.textContent !== txt) span.textContent = txt;
+    const sk = this.mySkill(p);
+    this.objKey = o.key;
+    this.objAt = o.anchor;
+    this.ui.frame(
+      {
+        p,
+        me: this.me(p),
+        priv: this.priv,
+        hostNow: s.hostNow(),
+        key: o.key,
+        anchor: o.anchor,
+        here: !!o.anchor && this.near(pl?.position, o.anchor),
+        mySkill: sk && !this.sent.has(sk.n) ? { game: sk.game, variant: sk.variant } : null,
+        gameOpen: !!this.open,
+        prompt: this.promptNow,
+        player: pl,
+      },
+      dt,
+    );
   }
 
   private hide() {
-    this.hud.classList.add('hidden');
-    this.marker.classList.add('hidden');
-    this.hudKey = '';
+    this.ui.hide();
+    this.rHeld = 0;
     this.objKey = null;
     this.objAt = null;
   }
@@ -497,12 +578,13 @@ export class JobDirector {
   debugState() {
     return {
       stage: !!this.stage,
-      hud: !this.hud.classList.contains('hidden'),
-      hudText: this.hud.textContent ?? '',
+      hud: this.ui.isShown(),
+      ...this.ui.debug(),
+      hudText: this.ui.debug().text,
       objective: this.objKey,
       at: this.objAt ? { x: this.objAt.x, y: this.objAt.y, z: this.objAt.z } : null,
       overlay: this.d.view.isOpen(),
-      marker: !this.marker.classList.contains('hidden'),
+      marker: this.ui.debug().marker3d || this.ui.debug().edge,
       game: this.open ? this.open.game.id : null,
       skill: this.priv?.skill ?? null,
       lastResult: this.lastResult,

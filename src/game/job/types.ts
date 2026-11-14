@@ -22,6 +22,12 @@ export interface JobStage {
   guards?: GuardSystemLike;
   /** open or close a door of the location: id 'liefer' | 'vorder' | 'dach' */
   openDoor?(id: string, open: boolean): void;
+  /**
+   * Entrances without a door to walk through (the roof hatch): the 'in' beat waits for the crew at `wait`
+   * (outside), the inside crew is then placed at the entrance anchor; after the 'out' beat it is placed at
+   * `exit` (outside) again. No climbing.
+   */
+  climb?: Record<string, { wait: string; exit: string }>;
   /** every phase / beat change on this client while the stage is registered */
   onPhase?(e: JobPhaseEvent): void;
 }

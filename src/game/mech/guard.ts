@@ -42,6 +42,8 @@ export interface GuardSystem {
   distract(x: number, z: number): boolean;
   onEvent(cb: (e: GuardEvent) => void): void;
   debugState(): unknown;
+  /** Read-only: where the guards are on this peer (host: simulation, client: the drawn, replicated poses). Empty while off. */
+  positions(): { x: number; z: number; yaw: number; state: number }[];
 }
 export interface GuardOptions {
   routes: Anchor[][];
@@ -696,6 +698,19 @@ export function createGuards(deps: LevelDeps, opts: GuardOptions): GuardSystem {
 
     onEvent(cb: (e: GuardEvent) => void) {
       cbs.push(cb);
+    },
+
+    positions() {
+      if (!isOn()) return [];
+      const host = !session || session.isHost;
+      const out: { x: number; z: number; yaw: number; state: number }[] = [];
+      for (let i = 0; i < views.length; i++) {
+        const g = sim.guards[i];
+        const v = views[i];
+        if (host && g) out.push({ x: g.x, z: g.z, yaw: g.yaw, state: g.st });
+        else if (!host && v.has) out.push({ x: v.x, z: v.z, yaw: v.yaw, state: v.st });
+      }
+      return out;
     },
 
     debugState() {

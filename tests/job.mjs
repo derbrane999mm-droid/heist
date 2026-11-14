@@ -1,7 +1,10 @@
 // The first-person job on the test stage (?level=job): solo and four players.
-// A job runs from the plan to the debrief on the stage, the HUD replaces the overlay during the run,
-// objectives follow the beats, a skill request reaches only its role holder, finishing it advances the
-// job, walking away falls back to the dice, beats wait for the inside crew, guards report an alarm.
+// A job runs from the plan to the debrief on the stage, the HUD replaces the overlay during the run (the
+// planning overlay never opens), objectives follow the beats and every role has one, decisions are a glass
+// pop-up on the decider's page only (number keys), the others see one line, secret offers are a pop-up on
+// their owner's page only (accept with targets / decline), a skill request reaches only its role holder and
+// shows "E ..." at its place (E opens the game), finishing it advances the job, walking away falls back to
+// the dice, beats wait for the inside crew, guards report an alarm, the intro card shows once, Tab holds the log.
 // Run: node tests/job.mjs
 import { startServers, openPlayer, sleep } from './harness.mjs';
 import { until, pub, act, crewOf4, waitForJob, pagesByRole, TEST_TIMES } from './plan-flow.mjs';
@@ -24,7 +27,7 @@ const role = async (page) => {
 };
 
 /** Everything a player does on his own, one step per call. `hold` = do not walk. */
-async function drive(page, me, { hold = false, finishSkill = true } = {}) {
+async function drive(page, me, { hold = false, finishSkill = true, offerMode = 'keys', stats = {} } = {}) {
   const p = await pub(page);
   if (!p || !p.phase) return p;
   const pv = await page.evaluate(() => { const r = window.__nv.plan.view.received; return r.length ? r[r.length - 1] : null; });
@@ -53,18 +56,45 @@ async function drive(page, me, { hold = false, finishSkill = true } = {}) {
         else if (Object.entries(POSTS).every(([r, x]) => p.plan.posts[r] === x)) await A({ t: 'confirm' });
       }
       break;
-    case 'offer': if (pv?.offer && !pv.offer.answered) await A({ t: 'offer', answer: 'decline' }); break;
+    case 'offer':
+      if (pv?.offer && !pv.offer.answered && !p.mid) await A({ t: 'offer', answer: 'decline' });
+      else if (pv?.offer && !pv.offer.answered && p.mid) {
+        // mid-job offers: the glass pop-up on this page
+        const st = await dbg(page);
+        if (st.popup !== 'offer') break;
+        if (offerMode === 'keys') {
+          stats.offerKeys = (stats.offerKeys || 0) + 1;
+          await page.keyboard.press('Digit1'); // accept; then the first target(s)
+        } else {
+          stats.offerClicks = (stats.offerClicks || 0) + 1;
+          await page.click('[data-jb-offer="decline"]');
+        }
+        await sleep(150);
+      }
+      break;
     case 'accuse': if (pv?.accuse && !pv.accuse.choice) await A({ t: 'accuse', target: 'pass' }); break;
     case 'run': {
       const d = p.run.decision;
+      const st = await dbg(page);
       if (d && d.who === me && !d.bot) {
-        const o = d.options.find((x) => PREFER.includes(x.id)) ?? d.options[0];
-        await A({ t: 'choose', id: o.id });
+        // the decider answers his glass pop-up with a number key
+        if (st.popup !== 'decision') break;
+        // like a person: read it for a moment (the others' pages show "… decides …" meanwhile)
+        const dk = p.job + ':' + p.run.shown;
+        if (stats.decAt?.k !== dk) { stats.decAt = { k: dk, t: Date.now() }; break; }
+        if (Date.now() - stats.decAt.t < 1200) break;
+        const i = Math.max(0, d.options.findIndex((x) => PREFER.includes(x.id)));
+        stats.decKeys = (stats.decKeys || 0) + 1;
+        await page.keyboard.press('Digit' + (i + 1));
+        await sleep(150);
         break;
       }
-      const st = await dbg(page);
       if (!hold && st.at) await page.evaluate((a) => window.__nv.tp(a.x, a.y + 0.02, a.z + 0.3), st.at);
-      if (finishSkill && st.game) await page.evaluate((id) => window.__nv.level.games[id].debugFinish(true), st.game);
+      if (finishSkill && st.prompt && !st.game) {
+        stats.prompts = (stats.prompts || 0) + 1;
+        await page.keyboard.press('KeyE');
+        await sleep(150);
+      } else if (finishSkill && st.game) await page.evaluate((id) => window.__nv.level.games[id].debugFinish(true), st.game);
       break;
     }
   }
@@ -94,28 +124,58 @@ try {
     const pos0 = await page.evaluate(() => ({ x: window.__nv.player.position.x, z: window.__nv.player.position.z, frozen: window.__nv.player.frozen }));
     check('solo: run -> HUD on, overlay closed, player can move', r0.hud && !r0.overlay && !pos0.frozen, JSON.stringify({ hud: r0.hud, overlay: r0.overlay, frozen: pos0.frozen }));
     check('solo: the inside crew starts at the van', Math.hypot(pos0.x - 0, pos0.z - 12) < 3, JSON.stringify(pos0));
-    check('solo: HUD shows the beat and the meters', /Minute/.test(r0.hudText) && r0.hudText.length > 20, r0.hudText.slice(0, 120));
+    check('solo: HUD shows the meters and one objective with distance', /Time/.test(r0.hudText) && /Noise/.test(r0.hudText) && r0.obj.length > 3 && / m$/.test(r0.dist), JSON.stringify({ obj: r0.obj, dist: r0.dist, sub: r0.sub }));
+    check('solo: the intro card shows at the start of the run', r0.intro && r0.introCount === 1);
+    await page.keyboard.press('ShiftLeft');
+    await sleep(200);
+    check('solo: any key closes the intro card', !(await dbg(page)).intro);
+    check('solo: the world marker stands at the objective', r0.marker3d || r0.edge);
     // the 'in' beat waits for me at the door
     const waiting = await until(async () => { const p = await drive(page, 'brain', { hold: true }); return p?.run?.waitAt ? p : false; }, 30000, 300);
     const wobj = await dbg(page);
     check('solo: a beat waits for the inside crew at its place (gate)', !!waiting && !!wobj.objective && wobj.marker, `${wobj.objective} · ${wobj.hudText.slice(-60)}`);
     // follow the job; record objectives; at the vault: first stay away, then walk there
     const objectives = new Set([r0.objective, wobj.objective]);
-    let skillSeen = null, openedFar = false, skillDone = false, alertSent = false, overlayForCard = false, doorOpen = false;
+    const objTexts = new Set([r0.obj, wobj.obj]);
+    const stats = {};
+    let skillSeen = null, openedFar = false, skillDone = false, alertSent = false, doorOpen = false;
+    let overlayInRun = false, popupNotFrozen = false, decPopup = null, promptBeforeGame = false, gameAfterE = false, logSeen = null, logClosed = false, offerPopup = null, offerTargetStep = false;
     const end = await until(async () => {
       const st = await dbg(page);
       if (st.objective) objectives.add(st.objective);
+      if (st.obj) objTexts.add(st.obj);
+      const pp = await pub(page);
+      if (pp && (pp.phase === 'run' || (pp.phase === 'offer' && pp.mid)) && st.overlay) overlayInRun = true;
+      if (st.popup === 'decision' && !decPopup) {
+        decPopup = { text: st.popText, opts: await page.evaluate(() => document.querySelectorAll('.jb-pop [data-jb-opt]').length) };
+        popupNotFrozen = !(await page.evaluate(() => window.__nv.player.frozen));
+      }
+      if (st.popup === 'offer' && !offerPopup) offerPopup = { text: st.popText, btns: await page.evaluate(() => document.querySelectorAll('.jb-pop [data-jb-offer]').length) };
+      if (st.popup === 'offer' && st.offerStep !== 'main') offerTargetStep = await page.evaluate(() => document.querySelectorAll('.jb-pop [data-jb-target]').length > 0);
+      if (st.prompt && !st.game) {
+        promptBeforeGame = await page.evaluate(() => !!document.querySelector('[data-jb-skill]:not(.hidden)'));
+        await page.keyboard.press('KeyE');
+        await sleep(250);
+        gameAfterE = (await dbg(page)).game !== null;
+      }
+      if (pp?.phase === 'run' && pp.run.beats.length >= 3 && !logSeen) {
+        await page.keyboard.down('Tab');
+        await sleep(200);
+        logSeen = await dbg(page);
+        await page.keyboard.up('Tab');
+        await sleep(150);
+        logClosed = !(await dbg(page)).log;
+      }
       if (st.skill && !skillSeen) {
         skillSeen = st.skill;
         await sleep(1500);
         openedFar = (await dbg(page)).game !== null; // not at the safe yet: must not open
       }
       const p = await pub(page);
-      if (p?.run?.decision?.who === 'brain') overlayForCard ||= (await dbg(page)).overlay && (await page.evaluate(() => window.__nv.player.frozen));
       if (p?.run && !alertSent && p.run.beats.length >= 3) { alertSent = true; await page.evaluate(() => window.__nv.level.guards.fire()); }
       if (!doorOpen) doorOpen = (await page.evaluate(() => window.__nv.level.doors())).liefer;
       // stay away from the safe until its request is here: it must wait for me (the gate gives up after its timeout)
-      await drive(page, 'brain', { hold: st.objective === 'safe' && !skillSeen });
+      await drive(page, 'brain', { hold: st.objective === 'safe' && !skillSeen, stats });
       if ((await dbg(page)).lastResult) skillDone = true;
       return p?.phase === 'debrief' ? p : false;
     }, 240000, 300);
@@ -125,7 +185,16 @@ try {
     check('solo: away from the safe the game does not open (it opens on arrival)', !!skillSeen && !openedFar && skillDone);
     const lines = await page.evaluate(() => window.__nv.plan.controller.debugMachine.S.run.beats.flatMap((b) => b.lines.map((l) => l.x?.k ?? l.roll?.label?.k)));
     check('solo: finishing the skill game advances the job with its result', skillDone && lines.includes('ln.skillOk') && !lines.includes('rl.combo'));
-    check('solo: a decision card opens the overlay (frozen) for its decider', overlayForCard);
+    check('solo: the planning overlay stays closed during the run', !overlayInRun);
+    check('solo: a decision is a glass pop-up with its options (player not frozen)', !!decPopup && decPopup.opts >= 2 && popupNotFrozen, JSON.stringify(decPopup));
+    check('solo: decisions were answered with number keys', (stats.decKeys || 0) > 0 && lines.includes('ln.choice'), JSON.stringify(stats));
+    check('solo: the secret offer is a glass pop-up with accept/decline', !!offerPopup && offerPopup.btns === 2, JSON.stringify(offerPopup));
+    const myOffer = await page.evaluate(() => window.__nv.plan.controller.debugMachine.S.offers.find((o) => o.human && o.when === 'mid'));
+    check('solo: accepting the offer with keys (incl. its target step) reached the machine', !!myOffer && myOffer.state === 'accepted' && (!myOffer.target || offerTargetStep), JSON.stringify({ myOffer: myOffer && { id: myOffer.id, state: myOffer.state, target: myOffer.target, partner: myOffer.partner }, offerTargetStep }));
+    check('solo: at the task place the prompt "E ..." shows and E opens the game', promptBeforeGame && gameAfterE);
+    check('solo: holding Tab shows the log, releasing hides it', !!logSeen && logSeen.log && logSeen.logText.length > 20 && logClosed);
+    check('solo: the objective text changes with the beats', objTexts.size >= 3, [...objTexts].join(' | '));
+    check('solo: the intro card showed only once', (await dbg(page)).introCount === 1);
     check('solo: the entrance opened', doorOpen);
     check('solo: a guard alarm reached the machine', await page.evaluate(() => !!window.__nv.plan.controller.debugMachine.S.run.guardAlert) && lines.includes('ln.guardAlert'));
     const fin = await dbg(page);
@@ -162,10 +231,33 @@ try {
     check('4p: lookout placed at the post, driver at the driver seat', Math.hypot(posLook.x + 9, posLook.z - 9) < 1.5 && Math.hypot(posDrv.x + 3, posDrv.z - 12.5) < 1.5, JSON.stringify([posLook, posDrv]));
     // follow: the Hände walk away from the door lock once it is open -> dice
     let lockSeenBy = new Set(), lockWalked = false, safeOk = false, othersSaw = 0;
+    let overlayInRun = 0, decLeak = 0, offerLeak = 0, watcherLine = '', decPopupBy = new Set(), offerPopupBy = new Set();
+    const objBy = {}, stats4 = {};
     const end = await until(async () => {
+      const hp = await pub(host);
       for (const p of pages) {
         const me = roleOfPage.get(p);
         const st = await dbg(p);
+        const pv = await p.evaluate(() => { const r = window.__nv.plan.view.received; return r.length ? r[r.length - 1] : null; });
+        if (hp && (hp.phase === 'run' || (hp.phase === 'offer' && hp.mid))) {
+          if (st.overlay) {
+            // the page may lag the host by a frame: count it only if its own state is the run and it stays open
+            await sleep(300);
+            const own = await pub(p);
+            if (own && (own.phase === 'run' || (own.phase === 'offer' && own.mid)) && (await dbg(p)).overlay) overlayInRun++;
+          }
+          if (st.obj) (objBy[me] ||= new Set()).add(st.obj);
+          const d = hp.run?.decision;
+          if (st.popup === 'decision') {
+            if (d && d.who === me) decPopupBy.add(me);
+            else if (d) decLeak++;
+          }
+          if (d && !d.bot && d.who !== me && /decides/.test(st.event)) watcherLine = st.event;
+          if (st.popup === 'offer') {
+            if (pv?.offer && pv.offer.when === 'mid') offerPopupBy.add(me);
+            else offerLeak++;
+          }
+        }
         if (st.skill) {
           if (st.skill.game === 'lock') lockSeenBy.add(me);
           if (me !== (st.skill.game === 'lock' ? 'hands' : 'brain')) othersSaw++;
@@ -176,7 +268,7 @@ try {
           await sleep(600);
           continue;
         }
-        await drive(p, me);
+        await drive(p, me, { offerMode: me === 'brain' ? 'keys' : 'click', stats: (stats4[me] ||= {}) });
         if (me === 'brain' && st.lastResult?.ok) safeOk = true;
       }
       const p = await pub(host);
@@ -187,6 +279,14 @@ try {
     check('4p: the door lock request reached only the Hände', lockSeenBy.size === 1 && lockSeenBy.has('hands') && othersSaw === 0, [...lockSeenBy].join(','));
     check('4p: walking away from the lock -> the dice decide', lockWalked && lines.includes('rl.noFumble') && !lines.includes('ln.skillNo'), lines.filter((k) => /skill|noFumble/.test(k)).join(','));
     check('4p: the Wortführer opened the safe by hand', safeOk && lines.includes('ln.skillOk'));
+    check('4p: the planning overlay stayed closed during the run on every page', overlayInRun === 0, String(overlayInRun));
+    check('4p: every role had an objective', ['brain', 'gambler', 'hands', 'bait'].every((r) => objBy[r]?.size > 0), JSON.stringify(Object.fromEntries(Object.entries(objBy).map(([k, v]) => [k, [...v]]))));
+    check('4p: a decision pop-up showed only on its decider\'s page', decPopupBy.size > 0 && decLeak === 0, JSON.stringify({ by: [...decPopupBy], leak: decLeak }));
+    check('4p: the others saw one line "… decides …"', !!watcherLine, watcherLine);
+    check('4p: decisions were answered with number keys', Object.values(stats4).some((x) => x.decKeys > 0), JSON.stringify(stats4));
+    const offers = await host.evaluate(() => window.__nv.plan.controller.debugMachine.S.offers.filter((o) => o.human && o.when === 'mid').map((o) => ({ role: o.role, state: o.state, target: o.target ?? null })));
+    check('4p: the mid-job offer pop-up showed only on each owner\'s page', offerPopupBy.size > 0 && offerLeak === 0, JSON.stringify({ by: [...offerPopupBy], leak: offerLeak }));
+    check('4p: offers: keys accept (with target), a click declines', offers.length > 0 && offers.every((o) => (o.role === 'brain' ? o.state === 'accepted' : o.state !== 'accepted')) && (stats4.brain?.offerKeys > 0) && Object.values(stats4).some((x) => x.offerClicks > 0), JSON.stringify({ offers, stats4 }));
     const priv = await Promise.all(pages.map((p) => p.evaluate(() => window.__nv.plan.view.received.filter((m) => m.skill).map((m) => m.role))));
     check('4p: private skill messages only ever carried the receiver\'s own role', priv.every((list, i) => list.every((r) => r === roleOfPage.get(pages[i]))));
     const errs = pages.flatMap((p) => p.errors);

@@ -8,6 +8,8 @@ export interface Campaign {
   /** Per-mission results, filled in as missions ship. */
   missions: Record<string, { stars: number; best: number }>;
   /** Lineup result: player id -> role id. */
+  /** The running evening of the planning round (numbers and names only; see plan/logic.ts Evening). */
+  evening?: unknown;
   roles: Record<string, 'brain' | 'gambler' | 'hands' | 'bait'>;
 }
 
