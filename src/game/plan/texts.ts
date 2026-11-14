@@ -626,6 +626,11 @@ const de: Record<string, string> = {
   'ln.blind': 'Toter Winkel. Keine Kamera sieht euch.',
   'ln.fumbleDoor': 'Patzer. Werkzeug fällt. Die Tür ist trotzdem offen.',
   'ln.open': 'Offen.',
+  'ln.skillOk': '{who} schafft es selbst ({s} s).',
+  'ln.skillNo': '{who} versucht es selbst und patzt ({s} s).',
+  'ln.skillSlow': '{who} hat lange gebraucht: +{n} Min.',
+  'ln.guardAlert': 'Ein Wachmann hat jemanden gesehen. Er wird gleich nachsehen.',
+  'im.guardAlert': 'Ein Wachmann hat euch drinnen gesehen.',
   'ln.lockHolds': 'Schloss hält. Brecheisen.',
   'ln.openSix': 'Nach sechs Minuten: offen.',
   'ln.crow': 'Brecheisen. Offen, aber laut.',
@@ -824,7 +829,14 @@ const de: Record<string, string> = {
   'gr.loud': 'Erfolgreich, aber zu auffällig',
 };
 
-const en: Record<string, string> = {};
+const en: Record<string, string> = {
+  // first-person job (the rest of the plan texts is German only for now)
+  'ln.skillOk': '{who} does it by hand ({s} s).',
+  'ln.skillNo': '{who} tries by hand and slips ({s} s).',
+  'ln.skillSlow': '{who} took long: +{n} min.',
+  'ln.guardAlert': 'A guard saw someone. He will come to check soon.',
+  'im.guardAlert': 'A guard saw you inside.',
+};
 
 export const PLAN_TEXTS = { de, en };
 

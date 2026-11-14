@@ -12,10 +12,22 @@ export interface PlanApi {
   start(): void;
   /** True from start until the debrief is reached. */
   running(): boolean;
+  /**
+   * First-person job: a level hands its stage to the job director (src/game/job/director.ts), which then
+   * turns the run into a walk-through with skill checks. Without a stage the job stays at the table.
+   * Returns an unregister function. Installed by main.ts; undefined where no director runs.
+   */
+  registerStage?(stage: import('../job/types').JobStage): () => void;
+}
+
+/** First-person options of the next job, set by the job director on the host. */
+export interface FirstPerson {
+  skills: boolean;
+  gate: PlanMachine['gate'];
 }
 
 const BOT_NAMES = ['Bot Kim', 'Bot Alex', 'Bot Sam'];
-const ACTIONS = new Set(['stake', 'confirm', 'scout', 'tool', 'ent', 'tgt', 'up', 'panel', 'post', 'choose', 'offer', 'accuse']);
+const ACTIONS = new Set(['stake', 'confirm', 'scout', 'tool', 'ent', 'tgt', 'up', 'panel', 'post', 'choose', 'offer', 'accuse', 'skill']);
 
 /** Replicated state at path 'plan': the machine's public view, or a waiting marker. */
 export type PlanPub = ReturnType<PlanMachine['pub']> & { job: number };
@@ -30,6 +42,10 @@ export class PlanController implements PlanApi {
   /** pid -> seat, to give a seat back when its player rejoins. */
   private seatOf = new Map<string, Role>();
   private saved = false;
+  /** first-person job (host): skill checks and beat gate for the next job; null = at the table */
+  private fp: FirstPerson | null = null;
+  /** Installed by main.ts when the job director exists (see PlanApi.registerStage). */
+  registerStage?: PlanApi['registerStage'];
 
   attach(s: Session) {
     this.s = s;
@@ -119,7 +135,8 @@ export class PlanController implements PlanApi {
     this.saved = false;
     this.privSent.clear();
     this.seatOf.clear();
-    this.m = new PlanMachine({ seed, seats, times }, s.hostNow());
+    this.m = new PlanMachine({ seed, seats, times, skills: !!this.fp?.skills }, s.hostNow());
+    this.m.gate = this.fp?.gate ?? null;
     s.emit('sfx', { n: 'ui' });
     this.publish();
   }
@@ -223,6 +240,24 @@ export class PlanController implements PlanApi {
         }
       }
     }, 150);
+  }
+
+  /** Host: first-person options for jobs (null: back to the table). A running job keeps its skill setting, the gate follows at once. */
+  setFirstPerson(fp: FirstPerson | null) {
+    this.fp = fp;
+    if (this.m) this.m.gate = fp?.gate ?? null;
+  }
+
+  /** Host: a guard of the first-person stage raised the alarm (reported by any crew member's client). */
+  guardAlert(pid: string) {
+    const m = this.m;
+    if (!m || !m.roleOf(pid)) return;
+    if (m.guardAlert()) this.publish();
+  }
+
+  /** The session this controller is attached to (job director). */
+  get session() {
+    return this.s;
   }
 
   /** Test hook: the host's machine (holds every secret; never replicated). */

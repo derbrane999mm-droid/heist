@@ -12,7 +12,7 @@ import { initRealMats, texturesReady } from './game/realmats';
 import { preloadModels } from './game/models';
 import { Player } from './game/player';
 import { Avatar } from './game/avatar';
-import { LEVELS, LEVEL_MODELS } from './game/levels';
+import { LEVELS, LEVEL_MODELS, DEFAULT_LEVEL } from './game/levels';
 import type { Level } from './game/level';
 import { Session, normalizeCode, MAX_PLAYERS, type JoinError } from './net/session';
 import { Voice } from './net/voice';
@@ -21,6 +21,7 @@ import { LineupView, installLineupHost, roleOf } from './game/lineup';
 import { resetCampaign } from './core/save';
 import { PlanController } from './game/plan/host';
 import { PlanView } from './game/plan/view';
+import { JobDirector } from './game/job/director';
 
 type Mode = 'menu' | 'playing';
 
@@ -91,6 +92,9 @@ async function boot() {
   const lineupView = new LineupView(document.getElementById('ui')!, input, audio, ui);
   const plan = new PlanController();
   const planView = new PlanView(document.getElementById('ui')!, input, audio, () => player);
+  // first-person job: a level registers its stage through deps.plan.registerStage (src/game/job)
+  const director = new JobDirector({ plan, view: planView, player: () => player, camera: engine.camera, root: document.getElementById('ui')! });
+  plan.registerStage = (stage) => director.register(stage);
   // Every light that can ever exist is created now. The number of lights is part
   // of each compiled shader, so adding one later would recompile everything.
   const flashlight = Player.createFlashlight(engine);
@@ -108,10 +112,11 @@ async function boot() {
     flashlight.castShadow = qp.shadows && qp.name !== 'medium';
   };
 
-  const levelName = q.get('level') ?? 'hq';
+  // the level actually built (an unknown name falls back to the hideout); crew members always play the host's level
+  const levelName = LEVELS[q.get('level') ?? DEFAULT_LEVEL] ? (q.get('level') ?? DEFAULT_LEVEL) : 'hideout';
   await preloadModels(LEVEL_MODELS[levelName] ?? []);
   const options = Object.fromEntries(q.entries());
-  level = (LEVELS[levelName] ?? LEVELS.hideout)({ engine, physics, audio, mats, interactions, input, ui, player: () => player, options, plan });
+  level = LEVELS[levelName]({ engine, physics, audio, mats, interactions, input, ui, player: () => player, options, plan });
 
   await texturesReady();
   // compile everything behind the loading screen (including a crew member's suit)
@@ -204,11 +209,42 @@ async function boot() {
         ui.setError(t('toast.hostLost'));
       }
     };
+    // everyone in the host's level: the host publishes its level, a guest in another one reloads into it
+    // and joins the same crew again (same name, colour and player id, so a seat in a running job comes back)
+    if (s.isHost) s.set('meta.level', levelName);
+    else {
+      let hopping = false;
+      const follow = () => {
+        const hl = s.get<string>('meta.level');
+        if (hopping || session !== s || !hl || hl === levelName || !LEVELS[hl]) return;
+        const tries = Number(sessionStorage.getItem('nv.levelHop') || 0);
+        if (tries >= 2) return; // never loop: stay in this level after two hops
+        hopping = true;
+        sessionStorage.setItem('nv.levelHop', String(tries + 1));
+        const u = new URL(location.href);
+        u.searchParams.set('level', hl);
+        u.searchParams.set('c', s.code);
+        u.searchParams.set('autojoin', '1');
+        for (const k of ['plan', 'to', 'seed']) u.searchParams.delete(k);
+        u.hash = '';
+        location.replace(u.toString()); // beforeunload leaves the session
+      };
+      s.onState((path) => {
+        if (path === '' || path === 'meta' || path === 'meta.level') follow();
+      });
+      follow();
+      if (hopping) {
+        ui.setBusy(true);
+        return;
+      }
+    }
+    sessionStorage.removeItem('nv.levelHop');
     level.attach(s);
     if (s.isHost) installLineupHost(s);
     lineupView.attach(s);
     plan.attach(s);
     planView.attach(s);
+    director.attach(s);
     if (q.get('plan') === '1' && s.isHost) {
       // dev helper: `&to=<phase>` jumps a solo job to that preparation step (`&seed=<n>` fixes the job)
       const to = q.get('to');
@@ -261,6 +297,7 @@ async function boot() {
     if (!session) return;
     lineupView.detach();
     planView.detach();
+    director.detach();
     plan.detach();
     level.detach();
     voice?.dispose();
@@ -326,6 +363,7 @@ async function boot() {
       ui.setPrompt(interactions.promptText);
       lineupView.update();
       planView.update();
+      director.update(dt, time);
 
       if (input.justPressed('mute')) {
         settings.set('micMuted', !settings.get('micMuted'));
@@ -381,6 +419,8 @@ async function boot() {
   engine.start();
   ui.showMenu('main');
   ui.hideBoot();
+  // reloaded into the host's level (see start()): join the crew again right away
+  if (q.get('autojoin') === '1' && invite.length === 5) void start(invite);
 
   // test / debug hooks
   (window as any).__nv = {
@@ -402,8 +442,10 @@ async function boot() {
     start,
     leave,
     level,
+    levelName,
     lineupView,
     plan: { start: () => plan.start(), running: () => plan.running(), controller: plan, view: planView },
+    job: director,
     missingTranslations,
     /** Teleport the local player (tests and screenshots). */
     tp(x: number, y: number, z: number, yaw = 0, pitch = 0) {

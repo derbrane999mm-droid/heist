@@ -57,6 +57,12 @@ export class PlanView {
   private unsub: (() => void)[] = [];
   /** Every private message this client received (tests check that it only ever holds its own). */
   readonly received: any[] = [];
+  /**
+   * First-person job (set by the job director, src/game/job): while it returns true for the current state,
+   * the overlay opens only when this player has to act (his decision card, his secret offer) and the
+   * director's HUD shows the rest. The pointer is locked again and the player can walk otherwise.
+   */
+  hudMode: ((p: any) => boolean) | null = null;
 
   constructor(
     root: HTMLElement,
@@ -155,7 +161,8 @@ export class PlanView {
     const s = this.s;
     const p = this.pub();
     // while the lineup runs its own overlay is in charge
-    const want = !!s && !!p && p.phase && p.phase !== 'lineup' && !(p.phase === 'debrief' && this.dismissed === p.job);
+    let want = !!s && !!p && p.phase && p.phase !== 'lineup' && !(p.phase === 'debrief' && this.dismissed === p.job);
+    if (want && this.hudMode?.(p)) want = this.needsMe(p);
     this.setOpen(!!want);
     if (!want) return;
     if (this.priv && this.priv.job !== p.job) this.priv = null;
@@ -179,6 +186,15 @@ export class PlanView {
       if (newBeats) this.audio.play('tick', { vol: 0.5 });
     }
     this.updateTimer(p);
+  }
+
+  /** First-person job: does this player have to act on the overlay right now? */
+  needsMe(p: any): boolean {
+    const me = this.myRole(p);
+    if (!me) return false;
+    if (p.phase === 'run') return !!p.run?.decision && p.run.decision.who === me && !p.run.decision.bot;
+    if (p.phase === 'offer' && p.mid) return !!this.priv?.offer && !this.priv.offer.answered && this.priv.job === p.job;
+    return true;
   }
 
   private updateTimer(p: any) {

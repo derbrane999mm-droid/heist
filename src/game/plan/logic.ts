@@ -225,7 +225,53 @@ export interface OffersStep {
   when: 'mid';
   roles: Role[];
 }
-export type Step = Decision | OffersStep;
+/**
+ * A skill check (first-person job): instead of rolling the dice, the machine may ask the human in seat
+ * `role` to do the thing himself (src/game/mech/skill.ts). The generator receives a SkillResult, or
+ * null/undefined: then it rolls exactly the roll it would have rolled without first-person play.
+ */
+export interface SkillStep {
+  kind: 'skill';
+  role: Role;
+  game: string;
+  variant: string;
+  difficulty: 1 | 2 | 3;
+  seed: number;
+  tools: string[];
+  /** where it happens, for the job director: 'door' (the chosen entrance) or 'safe' */
+  at: string;
+  /** the dice it replaces (chance after modifiers, label) */
+  p: number;
+  label: Txt;
+}
+export interface SkillAnswer {
+  ok: boolean;
+  seconds: number;
+  noise: number;
+  fumbles: number;
+  gaveUp?: boolean;
+}
+export type Step = Decision | OffersStep | SkillStep;
+
+/** Skill-check difficulty from the chance the dice roll would have had: >= 75 % easy, 50..74 medium, below hard. */
+export const skillDifficulty = (p: number): 1 | 2 | 3 => (p >= 75 ? 1 : p >= 50 ? 2 : 3);
+
+/**
+ * How a played skill check feeds the job (kept gentle on purpose, it is on top of the step's own outcome):
+ *  - ok decides the branch exactly like the dice result would (success / the step's usual failure branch).
+ *  - noise (0..10 reported) adds floor(noise / 4) to the job's noise, at most +2.
+ *  - fumbles: 3 or more slips add +1 noise (the total extra noise stays capped at +2).
+ *  - seconds: every full 30 s beyond the first 60 s cost one job minute, at most +2 minutes.
+ * Invalid numbers count as 0. Returns null for "no result" (gave up, timeout, garbage): dice fallback.
+ */
+export function skillEffect(a: any): null | { ok: boolean; noise: number; min: number; seconds: number } {
+  if (!a || typeof a !== 'object' || a.gaveUp || typeof a.ok !== 'boolean') return null;
+  const num = (v: any) => (Number.isFinite(Number(v)) ? Math.max(0, Number(v)) : 0);
+  const seconds = Math.min(3600, num(a.seconds));
+  const noise = Math.min(2, Math.floor(Math.min(10, num(a.noise)) / 4) + (num(a.fumbles) >= 3 ? 1 : 0));
+  const min = Math.min(2, Math.floor(Math.max(0, seconds - 60) / 30));
+  return { ok: a.ok, noise, min, seconds: Math.round(seconds) };
+}
 
 export interface Game {
   job: Job;
@@ -252,6 +298,8 @@ export interface Game {
   offers: Offer[];
   botAcceptAll: boolean;
   noOffers: boolean;
+  /** First-person job: rolls a human can play as a skill check are yielded as SkillStep (default off). */
+  skills: boolean;
   preTraces?: Txt[];
   run?: any;
   result?: any;
@@ -283,6 +331,8 @@ export interface NewGameOpts {
   noOffers?: boolean;
   /** A secret tip is told only to its owner instead of being added to the crew's facts. */
   privateTips?: boolean;
+  /** Yield skill checks for human seats (first-person job). Off: the dice decide, as in the prototype. */
+  skills?: boolean;
 }
 
 export function defaultPosts(): Record<Role, Post> {
@@ -319,6 +369,7 @@ export function newGame(opts: NewGameOpts = {}): Game {
     offers: [],
     botAcceptAll: !!opts.botAcceptAll,
     noOffers: !!opts.noOffers,
+    skills: !!opts.skills,
   };
   dealOffers(S);
   return S;
@@ -876,6 +927,7 @@ export function* runJob(S: Game): Generator<Step, any, any> {
     comp: [] as string[],
     activeMax: 0,
     midDone: false,
+    skills: 0,
   });
   for (const o of S.offers)
     if (o.state === 'accepted') {
@@ -964,6 +1016,32 @@ export function* runJob(S: Game): Generator<Step, any, any> {
     const o = dd.options.find((x) => x.id === c) || dd.options[0];
     line(T('ln.choice', { o: o.label }), 'choice');
     return o.id;
+  };
+  // A roll that a human may play himself (first-person job). Skill checks off, a bot seat, or no result
+  // (gave up, timeout): exactly the old roll, same random numbers. A result never touches S.rng.
+  let skillSt: 'ok' | 'warned' | 'arrived' = 'ok';
+  const skillRoll = function* (role: Role, game: string, variant: string, at: string, p: number, label: Txt, diff?: 1 | 2 | 3): Generator<Step, boolean, any> {
+    skillSt = 'ok';
+    if (!S.skills || S.humans.indexOf(role) < 0) return roll(p, label, role);
+    const pp = rollP(p, role);
+    const st: SkillStep = { kind: 'skill', role, game, variant, at, difficulty: diff ?? skillDifficulty(pp), seed: (S.runSeed * 31 + R.beats.length * 977 + R.skills * 131 + 7) >>> 0, tools: S.tools.slice(), p: pp, label };
+    R.skills++;
+    const fx = skillEffect(yield st);
+    if (!fx) return roll(p, label, role);
+    const rm = modsFor('roll', role);
+    for (const m of rm) m.o.hits.rolls++;
+    beat.lines.push({ kind: fx.ok ? 'good' : 'warn', x: T(fx.ok ? 'ln.skillOk' : 'ln.skillNo', { who: N(role), s: fx.seconds }) });
+    if (rm.length && (R.unsure[role] || 0) < 2) {
+      R.unsure[role] = (R.unsure[role] || 0) + 1;
+      rm[0].o.traces = (rm[0].o.traces || 0) + 1;
+      tline(T('tr.unsure', { who: N(role) }));
+    }
+    if (fx.noise) R.noise += fx.noise;
+    if (fx.min) {
+      line(T('ln.skillSlow', { who: N(role), n: fx.min }), 'warn');
+      skillSt = spend(fx.min);
+    }
+    return fx.ok;
   };
   const opt = (id: string, label: string, text: string, pct: number, pctLabel: string, tags?: Txt[], details?: Txt | null): Opt => ({
     id,
@@ -1296,7 +1374,7 @@ export function* runJob(S: Game): Generator<Step, any, any> {
     if (c === 'pick') {
       if (hIn) {
         spend(durA(3, 'hands'));
-        if (!roll(100 - fumbleP(), T('rl.noFumble'), 'hands')) {
+        if (!(yield* skillRoll('hands', 'lock', 'door', 'door', 100 - fumbleP(), T('rl.noFumble')))) {
           spend(2);
           R.noise += 2;
           line(T('ln.fumbleDoor'), 'warn');
@@ -1431,7 +1509,9 @@ export function* runJob(S: Game): Generator<Step, any, any> {
       if (method === 'quiet') {
         const st = spend(durA(quietBase, 'brain'));
         if (st !== 'ok') return st;
-        if (!roll(sTrue === 'mech' ? 85 : 90, T('rl.combo'), 'brain')) {
+        const okQ = yield* skillRoll('brain', 'safe', sTrue, 'safe', sTrue === 'mech' ? 85 : 90, T('rl.combo'));
+        if (skillSt !== 'ok') return skillSt;
+        if (!okQ) {
           line(T('ln.secondTry'), 'warn');
           const st2 = spend(3);
           if (st2 !== 'ok') return st2;
@@ -1443,7 +1523,9 @@ export function* runJob(S: Game): Generator<Step, any, any> {
         if (st !== 'ok') return st;
         R.noise += 4;
         if (isIn('hands')) {
-          if (!roll(100 - fumbleP(), T('rl.drill'), 'hands')) {
+          const okD = yield* skillRoll('hands', 'safe', 'drill', 'safe', 100 - fumbleP(), T('rl.drill'), sTrue === 'zeit' ? 3 : undefined);
+          if (skillSt !== 'ok') return skillSt;
+          if (!okD) {
             line(T('ln.drillJam'), 'warn');
             const st2 = spend(2);
             if (st2 !== 'ok') return st2;
@@ -1956,8 +2038,12 @@ export interface Times {
   accuse: number;
   beat: number;
   bot: number;
+  /** first-person job: how long a player has for a skill check before the dice decide */
+  skill: number;
+  /** first-person job: how long a beat waits for the inside crew to reach its place */
+  gate: number;
 }
-export const TIMES: Times = { stake: 60000, brief: 90000, board: 180000, facts: 60000, offer: 30000, decide: 25000, accuse: 30000, beat: 2600, bot: 2200 };
+export const TIMES: Times = { stake: 60000, brief: 90000, board: 180000, facts: 60000, offer: 30000, decide: 25000, accuse: 30000, beat: 2600, bot: 2200, skill: 90000, gate: 45000 };
 
 export type Action =
   | { t: 'stake'; id: string }
@@ -1971,7 +2057,8 @@ export type Action =
   | { t: 'post'; role: string; post: string }
   | { t: 'choose'; id: string }
   | { t: 'offer'; answer: string }
-  | { t: 'accuse'; target: string };
+  | { t: 'accuse'; target: string }
+  | ({ t: 'skill' } & SkillAnswer);
 
 /** A message for one seat only (the host forwards it to that player). */
 export interface PrivateView {
@@ -1979,6 +2066,8 @@ export interface PrivateView {
   offer: null | { id: OfferId; when: 'pre' | 'mid'; need: OfferDef['need']; targets: Role[]; deadline: number; answered: boolean };
   tip: null | { k: FactKey; v: string };
   accuse: null | { choice: string | null; deadline: number };
+  /** A skill check that only I play (first-person job): the SkillRequest plus where and until when. */
+  skill: null | { n: number; game: string; variant: string; difficulty: 1 | 2 | 3; seed: number; tools: string[]; timeLimit: number; at: string; deadline: number };
   /** My own answers so far (only ever sent to me). */
   mine: { id: OfferId; when: 'pre' | 'mid'; state: string; target: Role | null; partner: Role | null }[];
 }
@@ -1990,6 +2079,14 @@ export interface MachineOpts {
   times?: Partial<Times>;
   attention?: number;
   budget?: number;
+  /** First-person job: humans play some rolls as skill checks (see SkillStep). Default off. */
+  skills?: boolean;
+}
+
+/** Where a beat is, for the first-person job (the director maps it to an anchor). */
+export interface BeatRef {
+  title: Txt;
+  target: TargetId | null;
 }
 
 export class PlanMachine {
@@ -2013,6 +2110,15 @@ export class PlanMachine {
   private accusations = new Map<Role, string>();
   private botsActed = new Set<string>();
   private pubCache: any = null;
+  /** counts skill checks, so a client can tell a new request from a repeated one */
+  private skillN = 0;
+  /**
+   * First-person job (set by the host's job director): may beat `i` be shown now? False holds the job until
+   * it returns true or `times.gate` ran out (scares never soft-lock). Null: no waiting (the planning table).
+   */
+  gate: ((b: BeatRef, i: number) => boolean) | null = null;
+  private gating = -1;
+  private gateSince = 0;
 
   constructor(o: MachineOpts, now = 0) {
     this.times = { ...TIMES, ...(o.times || {}) };
@@ -2028,6 +2134,7 @@ export class PlanMachine {
       attention: o.attention,
       budget: o.budget,
       privateTips: true,
+      skills: !!o.skills,
     });
     this.enter('stake');
   }
@@ -2193,6 +2300,10 @@ export class PlanMachine {
           this.resolveDecision(String(a.id));
           return true;
         }
+        if (a.t === 'skill' && d && d.kind === 'skill' && this.pendingOpen && d.role === role) {
+          this.advance(a);
+          return true;
+        }
         if (a.t === 'offer' && d && d.kind === 'offers' && this.phase === 'run') return false;
         return false;
       }
@@ -2335,7 +2446,15 @@ export class PlanMachine {
     const p = this.pending;
     if (!p || this.pendingOpen) return;
     this.pendingOpen = true;
-    if (p.kind === 'decide') {
+    if (p.kind === 'skill') {
+      if (!this.isHuman(p.role)) {
+        // a bot (or a player who left) cannot play it: the dice decide at once
+        this.advance(null);
+        return;
+      }
+      this.skillN++;
+      this.deadline = this.now + this.times.skill;
+    } else if (p.kind === 'decide') {
       this.deadline = this.now + this.times.decide;
       this.scheduleBot();
     } else {
@@ -2419,6 +2538,16 @@ export class PlanMachine {
         const beats = S.run ? S.run.beats.length : 0;
         if (this.shown < beats) {
           if (now >= this.nextBeatAt) {
+            const b = S.run.beats[this.shown];
+            if (this.gate && !this.gate({ title: b.title, target: b.target ?? null }, this.shown)) {
+              if (this.gating !== this.shown) {
+                this.gating = this.shown;
+                this.gateSince = now;
+                this.touch();
+              }
+              if (now < this.gateSince + this.times.gate) return;
+            }
+            if (this.gating >= 0) this.gating = -1;
             this.shown++;
             this.nextBeatAt = now + this.times.beat;
             this.touch();
@@ -2437,6 +2566,9 @@ export class PlanMachine {
         }
         if (p.kind === 'decide') {
           if (timeUp || (!this.isHuman(p.who) && botTime)) this.resolveDecision(carefulChoice(S, p));
+        } else if (p.kind === 'skill') {
+          // no answer in time, or the player left: the dice decide
+          if (timeUp || !this.isHuman(p.role)) this.advance(null);
         }
         return;
       }
@@ -2500,6 +2632,10 @@ export class PlanMachine {
             }
           : null,
         entrance: S.plan.entrance,
+        // first-person job: who is at the lock / safe right now (no request details, no hidden facts)
+        skill: this.pending && this.pending.kind === 'skill' && this.pendingOpen ? { who: this.pending.role, game: this.pending.game, at: this.pending.at } : null,
+        // first-person job: the next beat waits for the inside crew to reach its place
+        waitAt: this.gating >= 0 && this.gating < R.beats.length ? { i: this.gating, title: R.beats[this.gating].title, target: R.beats[this.gating].target ?? null, until: this.gateSince + this.times.gate } : null,
       };
     }
     if (this.phase === 'accuse' || this.phase === 'debrief') v.traces = S.result.traces.slice();
@@ -2526,8 +2662,33 @@ export class PlanMachine {
           : null,
       tip: tip && this.phase !== 'debrief' ? { k: tip.k, v: tip.v } : null,
       accuse: this.phase === 'accuse' ? { choice: this.accusations.get(role) ?? null, deadline: this.deadline } : null,
+      skill: this.skillOf(role),
       mine: S.offers.filter((x) => x.role === role && x.human && x.state !== 'open').map((x) => ({ id: x.id, when: x.when, state: x.state, target: x.target ?? null, partner: x.partner ?? null })),
     };
+  }
+
+  /**
+   * First-person job: a guard of the stage spotted the crew and raised the alarm. Treated like the monitor
+   * room seeing the crew at the door: the guard window closes within 2 job minutes (afterAction then runs
+   * the usual guard encounter). Once per job, during the run only; returns true if it applied.
+   */
+  guardAlert(): boolean {
+    const R = this.S.run;
+    if (!(this.phase === 'run' || (this.phase === 'offer' && this.offerWhen === 'mid'))) return false;
+    if (!R || R.done || R.out || R.guardAlert) return false;
+    R.guardAlert = true;
+    R.windowEnd = Math.min(R.windowEnd, R.t + 2);
+    const b = R.beats[R.beats.length - 1];
+    if (b) b.lines.push({ kind: 'bad', x: T('ln.guardAlert') });
+    (R.impacts.guard = R.impacts.guard || []).push(T('im.guardAlert'));
+    this.touch();
+    return true;
+  }
+
+  private skillOf(role: Role): PrivateView['skill'] {
+    const p = this.pending;
+    if (this.phase !== 'run' || !p || p.kind !== 'skill' || !this.pendingOpen || p.role !== role) return null;
+    return { n: this.skillN, game: p.game, variant: p.variant, difficulty: p.difficulty, seed: p.seed, tools: p.tools.slice(), timeLimit: Math.round(this.times.skill / 1000), at: p.at, deadline: this.deadline };
   }
 
   /** Compact result for the campaign save. */

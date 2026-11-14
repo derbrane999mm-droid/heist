@@ -472,5 +472,179 @@ check('every text key from the step machine exists in the German table', missing
   }
 }
 
+// ---------------------------------------------------------------------------
+// 4. First-person job: skill checks
+// ---------------------------------------------------------------------------
+{
+  const FP_TOOLS = ['decoder', 'bohrer', 'magnet', 'schaum', 'stoer', 'leckerli'];
+  // a fixed plan with a door, the Hände inside and the vault first
+  function fpRun(seed, answer, { skills = true, humans = R, prefer = ['pick', 'quiet'], tools = FP_TOOLS } = {}) {
+    const S = E.newGame({ factSeed: seed, runSeed: seed * 7 + 1, humans, skills, noOffers: true });
+    S.tools = tools.slice();
+    S.plan = { entrance: 'liefer', panel: false, posts: { brain: 'inside', gambler: 'lookout', hands: 'inside', bait: 'driver' }, targets: ['tresor', 'vitrinen'] };
+    const g = E.runJob(S);
+    const steps = [];
+    let x = g.next();
+    while (!x.done) {
+      const v = x.value;
+      steps.push(v);
+      let a;
+      if (v.kind === 'skill') a = answer(v, S);
+      else if (v.kind === 'offers') a = {};
+      else a = v.options.find((o) => prefer.includes(o.id))?.id ?? E.carefulChoice(S, v);
+      x = g.next(a);
+    }
+    return { S, steps, r: x.value };
+  }
+  const skillsOf = (steps) => steps.filter((v) => v.kind === 'skill');
+  const linesOf = (S) => S.run.beats.flatMap((b) => b.lines);
+  const hasKey = (S, k) => linesOf(S).some((l) => l.x?.k === k);
+  const rollLabel = (S, k) => linesOf(S).some((l) => l.kind === 'roll' && l.roll.label.k === k);
+
+  // skills on, every check falls back (gave up / no answer): byte-identical to skills off, same random numbers
+  let same = 0, withSkill = 0;
+  const N = 300;
+  for (let s = 1; s <= N; s++) {
+    const off = fpRun(s, null, { skills: false });
+    const on = fpRun(s, (v, S) => (s % 2 ? { gaveUp: true, ok: false, seconds: 3, noise: 0, fumbles: 0 } : null));
+    if (skillsOf(on.steps).length) withSkill++;
+    if (JSON.stringify(off.S.run.beats) === JSON.stringify(on.S.run.beats) && JSON.stringify(off.r) === JSON.stringify(on.r) && !skillsOf(off.steps).length) same++;
+  }
+  check('skill checks: off -> never yielded; on + give-up/no answer -> job byte-identical to the dice job', same === N && withSkill > N / 2, `${same}/${N} identical, ${withSkill} with a skill step`);
+
+  // success and failure at the door
+  let doorOk = 0, doorNo = 0, doorRuns = 0, diffOk = true, safeVar = true, safeRuns = 0, safeNo = 0;
+  for (let s = 1; s <= 200; s++) {
+    const ok = fpRun(s, (v) => ({ ok: true, seconds: 20, noise: 0, fumbles: 0 }));
+    const no = fpRun(s, (v) => ({ ok: false, seconds: 20, noise: 0, fumbles: 0 }));
+    const door = skillsOf(ok.steps).find((v) => v.game === 'lock');
+    for (const v of skillsOf(ok.steps)) {
+      if (v.variant !== 'drill' || ok.S.facts.safe !== 'zeit') if (v.difficulty !== E.skillDifficulty(v.p)) diffOk = false;
+      if (v.variant === 'drill' && ok.S.facts.safe === 'zeit' && v.difficulty !== 3) diffOk = false;
+      if (v.game === 'safe') {
+        safeRuns++;
+        if (!(v.variant === 'drill' ? v.role === 'hands' : v.role === 'brain' && v.variant === ok.S.facts.safe)) safeVar = false;
+      }
+    }
+    if (!door) continue;
+    doorRuns++;
+    if (door.role === 'hands' && door.variant === 'door' && door.at === 'door' && hasKey(ok.S, 'ln.skillOk') && hasKey(ok.S, 'ln.open') && !hasKey(ok.S, 'ln.fumbleDoor') && !rollLabel(ok.S, 'rl.noFumble')) doorOk++;
+    if (hasKey(no.S, 'ln.skillNo') && hasKey(no.S, 'ln.fumbleDoor') && !rollLabel(no.S, 'rl.noFumble')) doorNo++;
+    if (skillsOf(no.steps).some((v) => v.game === 'safe') && (hasKey(no.S, 'ln.secondTry') || hasKey(no.S, 'ln.drillJam'))) safeNo++;
+  }
+  check('skill checks: door lock, success -> "open" branch, no dice', doorRuns > 50 && doorOk === doorRuns, `${doorOk}/${doorRuns}`);
+  check('skill checks: door lock, failure -> the fumble branch, no dice', doorNo === doorRuns, `${doorNo}/${doorRuns}`);
+  check('skill checks: safe -> brain with the true safe type (quiet) or hands drilling; failure -> second try / jam', safeRuns > 50 && safeVar && safeNo > 20, `${safeRuns} safe checks, ${safeNo} failures seen`);
+  check('skill checks: difficulty from the dice chance (>=75: 1, 50..74: 2, else 3), time-lock drill 3', diffOk);
+  // bounded effect
+  const fx = E.skillEffect({ ok: true, seconds: 900, noise: 10, fumbles: 9 });
+  const fx0 = E.skillEffect({ ok: true, seconds: 30, noise: 1, fumbles: 0 });
+  check('skill checks: noise/fumbles/seconds feed the job at most +2 noise and +2 minutes; give-up and garbage = dice', fx.noise === 2 && fx.min === 2 && fx0.noise === 0 && fx0.min === 0 && E.skillEffect({ gaveUp: true, ok: true }) === null && E.skillEffect({ ok: 'yes' }) === null && E.skillEffect(null) === null && E.skillEffect({ ok: false, seconds: NaN, noise: -5 }).noise === 0);
+  // bots never get one: only human seats
+  let botSkill = 0;
+  for (let s = 1; s <= 100; s++) botSkill += skillsOf(fpRun(s, () => ({ ok: true, seconds: 5, noise: 0, fumbles: 0 }), { humans: ['brain'] }).steps).filter((v) => v.role !== 'brain').length;
+  check('skill checks: never for a bot seat (generator)', botSkill === 0);
+
+  // the machine: request privately to the role holder, answer only from him, timeout -> dice
+  const FP = { ...FAST, skill: 4000, gate: 2000 };
+  function machineRun(seed, seats, onSkill, opts = {}) {
+    const m = new E.PlanMachine({ seed, seats, times: FP, skills: true }, 0);
+    let now = 0;
+    const log = { seen: [], wrongAccepted: 0, privOthers: 0, pubLeak: 0, pubWho: [] };
+    while (m.phase !== 'debrief' && now < 3e6) {
+      now += 100;
+      m.tick(now);
+      const p = m.pub();
+      if (p.phase === 'plan') {
+        for (const r of R) if (m.isHuman(r)) m.act(r, { t: 'post', role: r, post: r === 'hands' || r === 'brain' ? 'inside' : 'lookout' }, now);
+        if (m.isHuman('brain')) for (const r of R) if (!m.isHuman(r)) m.act('brain', { t: 'post', role: r, post: r === 'hands' ? 'inside' : 'lookout' }, now);
+      }
+      if (p.phase === 'shop' && m.isHuman('brain')) for (const t of ['decoder', 'bohrer']) if (!p.board.tools.includes(t)) m.act('brain', { t: 'tool', id: t }, now);
+      if (p.phase === 'offer') for (const r of R) if (m.priv(r).offer && !m.priv(r).offer.answered) m.act(r, { t: 'offer', answer: 'decline' }, now);
+      if (p.run?.decision && m.isHuman(p.run.decision.who)) m.act(p.run.decision.who, { t: 'choose', id: p.run.decision.options.find((o) => o.id === 'pick' || o.id === 'quiet')?.id ?? p.run.decision.options[0].id }, now);
+      if (p.run?.skill) {
+        const pj = JSON.stringify(p.run);
+        if (/variant|seed|difficulty|"mech"|"elek"|"zeit"/.test(pj)) log.pubLeak++;
+        log.pubWho.push(p.run.skill.who);
+      }
+      for (const r of R) {
+        const sk = m.priv(r).skill;
+        if (!sk) continue;
+        if (!log.seen.some((x) => x.n === sk.n)) log.seen.push({ ...sk, role: r, at0: now });
+        for (const o of R) if (o !== r && m.priv(o).skill) log.privOthers++;
+        for (const o of R) if (o !== r && m.isHuman(o) && m.act(o, { t: 'skill', ok: true, seconds: 1, noise: 0, fumbles: 0 }, now)) log.wrongAccepted++;
+        const a = onSkill(sk, r, now - log.seen.find((x) => x.n === sk.n).at0);
+        if (a) m.act(r, { t: 'skill', ...a }, now);
+      }
+    }
+    return { m, log };
+  }
+  const seats4 = R.map((r, i) => ({ role: r, pid: 'p' + i, name: 'P' + i }));
+  let mOk = 0, mReached = 0, mWrong = 0, mPriv = 0, mLeak = 0, mReq = 0;
+  for (let s = 1; s <= 40; s++) {
+    const { m, log } = machineRun(s, seats4, () => ({ ok: true, seconds: 12, noise: 0, fumbles: 0 }));
+    if (m.phase === 'debrief') mReached++;
+    mReq += log.seen.length;
+    mWrong += log.wrongAccepted;
+    mPriv += log.privOthers;
+    mLeak += log.pubLeak;
+    if (log.seen.length && linesOf(m.S).filter((l) => l.x?.k === 'ln.skillOk').length === log.seen.length) mOk++;
+    if (log.seen.some((x) => x.timeLimit !== 4 || !x.deadline)) mLeak++;
+  }
+  check('machine: skill requests reach only the role holder; every job ends', mReached === 40 && mReq > 20 && mPriv === 0, `${mReq} requests, ${mPriv} seen by others`);
+  check('machine: a non-owner cannot answer a skill check', mWrong === 0);
+  check('machine: pub() says only who is at the lock/safe (no variant, seed or safe type)', mLeak === 0);
+  check('machine: an answered success is used instead of the dice', mOk > 10, `${mOk} jobs`);
+  // timeout: nobody answers -> after times.skill the dice decide
+  {
+    let reached = 0, fell = 0, waited = true, reqs = 0;
+    for (let s = 1; s <= 15; s++) {
+      const { m, log } = machineRun(s, seats4, (sk, r, age) => {
+        if (age > FP.skill + 300) waited = false; // still open after the deadline
+        return null;
+      });
+      if (m.phase === 'debrief') reached++;
+      reqs += log.seen.length;
+      if (log.seen.length && !hasKey(m.S, 'ln.skillOk') && !hasKey(m.S, 'ln.skillNo') && (rollLabel(m.S, 'rl.noFumble') || rollLabel(m.S, 'rl.combo') || rollLabel(m.S, 'rl.drill'))) fell++;
+    }
+    check('machine: no answer -> the dice decide when the skill deadline passes', reached === 15 && reqs > 5 && fell > 5 && waited, `${fell} fell back, ${reqs} requests`);
+  }
+  // give-up -> dice at once
+  {
+    const { m, log } = machineRun(2, seats4, () => ({ ok: false, gaveUp: true, seconds: 3, noise: 0, fumbles: 0 }));
+    check('machine: give-up -> dice', m.phase === 'debrief' && log.seen.length > 0 && !hasKey(m.S, 'ln.skillNo') && !hasKey(m.S, 'ln.skillOk'));
+  }
+  // bots: the Hände seat is a bot -> never asked, the job runs
+  {
+    let botAsked = 0, reached = 0;
+    for (let s = 1; s <= 20; s++) {
+      const seats = R.map((r, i) => ({ role: r, pid: r === 'hands' ? null : 'p' + i, name: 'P' + i }));
+      const { m, log } = machineRun(s, seats, () => ({ ok: true, seconds: 5, noise: 0, fumbles: 0 }));
+      botAsked += log.seen.filter((x) => x.role === 'hands').length + log.pubWho.filter((w) => w === 'hands').length;
+      if (m.phase === 'debrief') reached++;
+    }
+    check('machine: a bot seat never gets a skill step', botAsked === 0 && reached === 20);
+  }
+  // the beat gate holds a beat, then gives up after times.gate; and lets it through once satisfied
+  {
+    const m = new E.PlanMachine({ seed: 4, seats: [{ role: 'brain', pid: 'a', name: 'A' }], times: FP }, 0);
+    let open = false, held = 0, now = 0, maxHold = 0, since = -1, waitSeen = false;
+    m.gate = (b, i) => open || i === 0;
+    while (m.phase !== 'debrief' && now < 3e6) {
+      now += 100;
+      m.tick(now);
+      const p = m.pub();
+      if (p.run?.waitAt) {
+        waitSeen = true;
+        if (since < 0) since = now;
+        maxHold = Math.max(maxHold, now - since);
+      } else since = -1;
+      if (p.run && p.run.shown >= 3) open = true;
+    }
+    check('machine: the beat gate waits for the crew, never longer than times.gate', waitSeen && maxHold >= FP.gate - 200 && maxHold <= FP.gate + 300 && m.phase === 'debrief', `held up to ${maxHold} ms`);
+  }
+  check('skill texts exist', ['ln.skillOk', 'ln.skillNo', 'ln.skillSlow'].every(hasText));
+}
+
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);
