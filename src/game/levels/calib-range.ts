@@ -25,7 +25,7 @@ import { clampDiff, wavePlan, waveSize, spawnCount, stars, yawTo } from '../mech
 registerStrings(
   {
     'rng.obj.s1': 'Lane A: reach the control console at the far end',
-    'rng.obj.s1hint': 'Three scouts patrol. Stay out of their cones, crouch to move silently, or shut one down from behind (hold E)',
+    'rng.obj.s1hint': 'Three scouts patrol. The floor shows what they see: stay out of it, crouch to move silently, or shut one down from behind (hold E)',
     'rng.obj.s1loud': 'You have been spotted: fight your way to the console',
     'rng.obj.s2go': 'Lane B: start the uplink at the beacon inside the ring',
     'rng.obj.s2hold': 'Hold the ring: {s} s left',
@@ -38,8 +38,9 @@ registerStrings(
     'rng.prompt.console': 'Shut lane A down',
     'rng.prompt.beacon': 'Start the uplink',
     'rng.prompt.switch': 'Throw the door switch',
-    'rng.lock.switch': 'Locked: {n} sentinels still active',
+    'rng.lock.switch': 'Locked: sentinels still active ({n})',
     'rng.sub.intro': 'CONTROL: Calibration run, three lanes. Lane A: get to the console at the far end. The scouts do not have to notice you.',
+    'rng.sub.controls': 'CONTROL: Left mouse fires, R recharges the pistol. Crouched (C) you make no sound.',
     'rng.sub.loud': 'CONTROL: They have seen you. So much for quiet.',
     'rng.sub.s1done': 'CONTROL: Lane A is down. Through the door.',
     'rng.sub.hold': 'CONTROL: Uplink running. Stay inside the ring. They are coming through the vents.',
@@ -71,7 +72,7 @@ registerStrings(
   },
   {
     'rng.obj.s1': 'Bahn A: Erreicht die Steuerkonsole am anderen Ende',
-    'rng.obj.s1hint': 'Drei Scouts patrouillieren. Bleibt aus ihren Sichtkegeln, schleicht geduckt (lautlos) oder schaltet einen von hinten ab (E halten)',
+    'rng.obj.s1hint': 'Drei Scouts patrouillieren. Am Boden seht ihr, was sie sehen: Bleibt draußen, schleicht geduckt (lautlos) oder schaltet einen von hinten ab (E halten)',
     'rng.obj.s1loud': 'Ihr seid entdeckt: Kämpft euch zur Konsole durch',
     'rng.obj.s2go': 'Bahn B: Startet den Uplink an der Bake im Ring',
     'rng.obj.s2hold': 'Haltet den Ring: noch {s} s',
@@ -84,8 +85,9 @@ registerStrings(
     'rng.prompt.console': 'Bahn A abschalten',
     'rng.prompt.beacon': 'Uplink starten',
     'rng.prompt.switch': 'Türschalter umlegen',
-    'rng.lock.switch': 'Gesperrt: noch {n} Sentinels aktiv',
+    'rng.lock.switch': 'Gesperrt: Sentinels noch aktiv ({n})',
     'rng.sub.intro': 'LEITSTAND: Kalibrierlauf, drei Bahnen. Bahn A: Kommt zur Konsole am anderen Ende. Die Scouts müssen euch dabei nicht bemerken.',
+    'rng.sub.controls': 'LEITSTAND: Linke Maustaste schießt, R lädt die Pistole auf. Geduckt (C) seid ihr lautlos.',
     'rng.sub.loud': 'LEITSTAND: Sie haben euch gesehen. Das war’s mit leise.',
     'rng.sub.s1done': 'LEITSTAND: Bahn A ist aus. Durch die Tür.',
     'rng.sub.hold': 'LEITSTAND: Uplink läuft. Bleibt im Ring. Sie kommen durch die Lüftung.',
@@ -910,7 +912,10 @@ export function createCalibRange(deps: LevelDeps): Level {
       // joined a run in progress: start at the current lane, doors already open
       toCheckpoint(cur.stage);
       for (let i = 0; i < doors.length; i++) doors[i].open = cur.stage > i + 1 ? 1 : 0;
-    } else ui.say('rng.sub.intro');
+    } else {
+      ui.say('rng.sub.intro');
+      ui.say('rng.sub.controls');
+    }
     redrawScreens();
     showCard();
   };

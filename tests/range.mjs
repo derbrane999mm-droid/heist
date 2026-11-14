@@ -37,7 +37,6 @@ const use = (page, id) => page.evaluate((id) => window.__nv.interactions.debugUs
 const key = (page, code, down) => page.evaluate(([c, d]) => window.__nv.input.debugSet(c, d), [code, down]);
 const visible = (page, sel) => page.evaluate((sel) => { const el = document.querySelector(sel); return !!el && !el.classList.contains('hidden'); }, sel);
 const text = (page, sel) => page.evaluate((sel) => document.querySelector(sel)?.textContent ?? '', sel);
-const dist = (a, b) => Math.hypot(a.x - b.x, a.z - b.z);
 /** Point the player's camera at a drone (as this peer sees it). */
 const aimAt = (page, id) =>
   page.evaluate((id) => {

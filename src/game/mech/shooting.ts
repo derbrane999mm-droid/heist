@@ -15,6 +15,14 @@
 // runs locally with no players, so drones patrol behind the main menu.
 //
 // The rules themselves (tuning, awareness, damage) live in shooting-logic.ts.
+//
+// Using it from a level (see levels/calib-range.ts):
+//   const sh = createShooting(deps, { scouts: 12, sentinels: 2, diff, ceiling: 3.5 });  // in the factory
+//   attach:  sh.attach(session)   detach: sh.detach()   update: sh.update(dt, time)
+//   host:    sh.spawn({ type: 'scout', x, z, route, group }), sh.clear(), sh.killAll(), sh.shutdown()
+//            sh.onWipe = () => { ...restart at the checkpoint...; sh.resetPlayers(); }
+//            sh.onAlert = (group) => { ...the lane went loud... }
+//   Replicated state lives under `sh.*`, intents and events are named `sh.*` too.
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeometry.js';
@@ -92,7 +100,7 @@ registerStrings(
     'sh.toast.up': '{name} is back up',
   },
   {
-    'sh.hp': 'Zustand',
+    'sh.hp': 'Vitalwerte',
     'sh.ammo': 'EMP-Pistole',
     'sh.reload': 'Lädt auf',
     'sh.aw.hidden': 'Unentdeckt',
