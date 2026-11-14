@@ -40,7 +40,7 @@ export function createMyLevel(deps: LevelDeps): Level { ... }
 
 Open it directly with `?level=<name>` (plus `&diff=1..3`): menu → Create crew → you spawn in it. `deps.options` holds the URL parameters.
 
-`LevelDeps`: `engine, physics, audio, mats, interactions, ui, player(): Player | null, options`.
+`LevelDeps`: `engine, physics, audio, mats, interactions, input, ui, player(): Player | null, options`.
 `Level`: `spawn(i)`, `menuCamera(t, cam)`, `attach(session)`, `detach()`, `update(dt, time)`, `objective(): string[]`, `redraw()`.
 
 - Build everything in the factory (it runs once at boot, behind the loading screen). `attach` only wires state.

@@ -3,6 +3,7 @@ import type { Engine } from '../core/engine';
 import type { Physics } from '../core/physics';
 import type { AudioEngine } from '../core/audio';
 import type { Interactions } from './interact';
+import type { Input } from '../core/input';
 import type { MaterialLib } from './materials';
 import type { Player } from './player';
 import type { Session } from '../net/session';
@@ -14,6 +15,7 @@ export interface LevelDeps {
   audio: AudioEngine;
   mats: MaterialLib;
   interactions: Interactions;
+  input: Input;
   ui: UI;
   player(): Player | null;
   /** URL parameters (e.g. `diff` for difficulty 1..3 while developing a level). */

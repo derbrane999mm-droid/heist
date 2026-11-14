@@ -94,7 +94,7 @@ async function boot() {
 
   const levelName = q.get('level') ?? 'hideout';
   const options = Object.fromEntries(q.entries());
-  level = (LEVELS[levelName] ?? LEVELS.hideout)({ engine, physics, audio, mats, interactions, ui, player: () => player, options });
+  level = (LEVELS[levelName] ?? LEVELS.hideout)({ engine, physics, audio, mats, interactions, input, ui, player: () => player, options });
 
   // compile everything behind the loading screen (including a crew member's suit)
   {
