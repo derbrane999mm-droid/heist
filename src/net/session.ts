@@ -105,6 +105,7 @@ export class Session {
   private stateListeners = new Set<(path: string, value: any) => void>();
   private eventListeners = new Set<(name: string, args: any) => void>();
   private castListeners = new Set<(name: string, data: any) => void>();
+  private privateListeners = new Set<(name: string, args: any) => void>();
   private lastPoses = new Map<string, Pose>();
   private intents = new Map<string, (pid: string, args: any) => void>();
 
@@ -454,6 +455,9 @@ export class Session {
         case 'c':
           for (const l of this.castListeners) l(d.n, d.a);
           break;
+        case 'pm':
+          for (const l of this.privateListeners) l(d.n, d.a);
+          break;
       }
     });
     unrel.on('data', (d: any) => {
@@ -617,6 +621,31 @@ export class Session {
   onEvent(fn: (name: string, args: any) => void): () => void {
     this.eventListeners.add(fn);
     return () => this.eventListeners.delete(fn);
+  }
+
+  /**
+   * Host only: one-shot message for one crew member (reliable). Nobody else
+   * receives it, so it can carry secrets. Answers go back as intents, which
+   * only the host sees.
+   */
+  sendTo(pid: string, name: string, args?: any) {
+    if (!this.isHost) return;
+    if (pid === this.pid) {
+      for (const l of this.privateListeners) l(name, args);
+      return;
+    }
+    const link = this.links.get(pid);
+    if (!link?.rel.open) return;
+    try {
+      link.rel.send({ t: 'pm', n: name, a: args });
+    } catch {
+      /* link is closing */
+    }
+  }
+
+  onPrivate(fn: (name: string, args: any) => void): () => void {
+    this.privateListeners.add(fn);
+    return () => this.privateListeners.delete(fn);
   }
 
   /**

@@ -8,6 +8,7 @@ import type { MaterialLib } from './materials';
 import type { Player } from './player';
 import type { Session } from '../net/session';
 import type { UI } from '../ui/ui';
+import type { PlanApi } from './plan/host';
 
 export interface LevelDeps {
   engine: Engine;
@@ -20,6 +21,8 @@ export interface LevelDeps {
   player(): Player | null;
   /** URL parameters (e.g. `diff` for difficulty 1..3 while developing a level). */
   options: Record<string, string>;
+  /** The planning round (src/game/plan): `plan.start()` starts a job for the crew. */
+  plan?: PlanApi;
 }
 
 export interface Level {
