@@ -437,7 +437,7 @@ export class LineupView {
     const nodes: Node[] = [];
     const dot = (color: number) => {
       const hex = '#' + PLAYER_COLORS[color % PLAYER_COLORS.length].toString(16).padStart(6, '0');
-      return h('i', { class: 'lu-dot', style: `background:${hex};box-shadow:0 0 8px ${hex}` });
+      return h('i', { class: 'lu-dot', style: `background:${hex}` });
     };
     const head = h(
       'div',

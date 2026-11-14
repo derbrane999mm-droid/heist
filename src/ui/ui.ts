@@ -5,6 +5,10 @@ import { settings, PLAYER_COLORS, type QualityName, type Settings } from '../cor
 import type { MicState } from '../net/voice';
 
 export const VERSION = '0.3.0';
+/** Working title of the game, per language. Change it here (and in the <title> of index.html, which shows before the
+ *  script runs): the menu, the loading screen and the browser tab use it. */
+export const GAME_TITLE = { en: 'THE JOB', de: 'DER COUP' } as const;
+export const gameTitle = () => GAME_TITLE[settings.get('lang') === 'de' ? 'de' : 'en'];
 
 type Child = Node | string | null | undefined | false;
 export function h<K extends keyof HTMLElementTagNameMap>(tag: K, props: Record<string, any> = {}, ...children: Child[]): HTMLElementTagNameMap[K] {
@@ -58,7 +62,7 @@ export class UI {
   private subtitleEl!: HTMLElement;
   private toastsEl!: HTMLElement;
   private mode: MenuMode = 'main';
-  private view: 'home' | 'settings' = 'home';
+  private view: 'home' | 'settings' | 'create' | 'join' = 'home';
   private busy = false;
   private error = '';
   private inviteCode: string | null;
@@ -78,6 +82,8 @@ export class UI {
   ) {
     this.root = root;
     this.inviteCode = inviteCode;
+    if (inviteCode) this.codeDraft = inviteCode;
+    document.title = gameTitle();
     this.build();
     onLangChange(() => this.refresh());
   }
@@ -104,8 +110,12 @@ export class UI {
   }
 
   private logo(): HTMLElement {
-    const mark = h('div', { class: 'logo-mark' }, h('b', {}, 'Ø'), ' NULL VAULT');
-    return h('div', { class: 'logo' }, mark, h('div', { class: 'logo-tag' }, t('title.tag')), h('div', { class: 'logo-rule' }));
+    return h('div', { class: 'logo' }, h('div', { class: 'logo-tag' }, t('title.tag')), h('div', { class: 'logo-mark' }, gameTitle()));
+  }
+
+  /** Big heading of a sub view (dialog, settings, pause). */
+  private heading(textKey: string, overKey?: string): HTMLElement {
+    return h('div', { class: 'heading' }, overKey ? h('div', { class: 'overline' }, t(overKey)) : null, h('div', { class: 'heading-text' }, t(textKey)));
   }
 
   // ---------------------------------------------------------------- menus
@@ -147,12 +157,20 @@ export class UI {
 
   private renderMenu() {
     if (this.mode === 'none') return;
-    const col = h('div', { class: 'menu-col' });
+    const col = h('div', { class: 'menu-col view-' + this.view });
+    const back = () =>
+      this.btn('menu.back', 'ghost', () => {
+        this.view = 'home';
+        this.resetArmed = false;
+        this.renderMenu();
+      });
+    const status = () => h('div', { class: 'menu-error' + (this.busy ? ' busy' : '') }, this.busy ? t('menu.connecting') : this.error);
     if (this.view === 'settings') {
-      col.append(h('div', { class: 'label' }, t('menu.settings')), this.settingsPanel());
+      col.append(this.heading('menu.settings', this.mode === 'pause' ? 'menu.paused' : undefined), this.settingsPanel());
+      const actions = h('div', { class: 'actions' }, back());
       if (this.mode === 'main') {
-        col.append(
-          this.btn(this.resetArmed ? 'menu.reset.confirm' : 'menu.reset', 'danger', () => {
+        actions.append(
+          this.btn(this.resetArmed ? 'menu.reset.confirm' : 'menu.reset', 'ghost danger', () => {
             if (!this.resetArmed) {
               this.resetArmed = true;
             } else {
@@ -164,20 +182,15 @@ export class UI {
           }),
         );
       }
-      col.append(
-        this.btn('menu.back', 'ghost', () => {
-          this.view = 'home';
-          this.resetArmed = false;
-          this.renderMenu();
-        }),
-      );
-    } else if (this.mode === 'main') {
+      col.append(actions);
+    } else if (this.mode === 'main' && (this.view === 'create' || this.view === 'join')) {
+      const joining = this.view === 'join';
       const name = h('input', { type: 'text', maxlength: '16', placeholder: t('menu.name.ph'), value: settings.get('name'), autocomplete: 'off', spellcheck: 'false' });
       name.addEventListener('input', () => settings.set('name', name.value.trim().slice(0, 16)));
       const swatches = h('div', { class: 'swatches' });
       PLAYER_COLORS.forEach((c, i) => {
         const hex = '#' + c.toString(16).padStart(6, '0');
-        const s = h('button', { class: 'swatch' + (settings.get('color') === i ? ' on' : ''), type: 'button', style: `background:${hex};color:${hex}`, 'aria-label': hex });
+        const s = h('button', { class: 'swatch' + (settings.get('color') === i ? ' on' : ''), type: 'button', style: `background:${hex}`, 'aria-label': hex });
         s.addEventListener('click', () => {
           settings.set('color', i);
           this.ev.onSound('ui');
@@ -185,51 +198,68 @@ export class UI {
         });
         swatches.append(s);
       });
-      col.append(
-        this.logo(),
-        h('div', { class: 'field' }, h('div', { class: 'label' }, t('menu.name')), name),
-        h('div', { class: 'field' }, h('div', { class: 'label' }, t('menu.color')), swatches),
-      );
-      if (this.inviteCode) {
-        col.append(this.btn('menu.joinCode', 'primary', () => this.ev.onJoin(this.inviteCode!), { code: this.inviteCode }));
-        col.append(this.btn('menu.create', '', () => this.ev.onCreate()));
-      } else {
-        col.append(this.btn('menu.create', 'primary', () => this.ev.onCreate()));
-        const code = h('input', { type: 'text', class: 'code', maxlength: '5', placeholder: t('menu.code.ph'), value: this.codeDraft, autocomplete: 'off', spellcheck: 'false' });
-        const join = this.btn('menu.join', '', () => this.ev.onJoin(code.value));
+      const panel = h('div', { class: 'panel' }, this.heading(joining ? 'menu.join' : 'menu.create'), h('p', { class: 'lede' }, t(joining ? 'menu.join.sub' : 'menu.create.sub')));
+      let code: HTMLInputElement | null = null;
+      if (joining) {
+        code = h('input', { type: 'text', class: 'code', maxlength: '5', placeholder: t('menu.code.ph'), value: this.codeDraft, autocomplete: 'off', spellcheck: 'false' });
         code.addEventListener('input', () => {
-          code.value = code.value.toUpperCase().replace(/[^A-Z0-9]/g, '');
-          this.codeDraft = code.value;
+          code!.value = code!.value.toUpperCase().replace(/[^A-Z0-9]/g, '');
+          this.codeDraft = code!.value;
         });
-        code.addEventListener('keydown', (e) => {
-          if (e.key === 'Enter') join.click();
-        });
-        col.append(h('div', { class: 'row' }, code, join));
+        panel.append(h('label', { class: 'field' }, h('span', { class: 'label' }, t('menu.code')), code));
       }
-      col.append(
-        this.btn('menu.settings', 'ghost', () => {
-          this.view = 'settings';
-          this.renderMenu();
-        }),
-        h('div', { class: 'menu-error' }, this.busy ? t('menu.connecting') : this.error),
+      panel.append(
+        h('label', { class: 'field' }, h('span', { class: 'label' }, t('menu.name')), name),
+        h('div', { class: 'field' }, h('span', { class: 'label' }, t('menu.color')), swatches),
       );
+      const go = joining ? this.btn('menu.join', 'primary', () => this.ev.onJoin(code!.value)) : this.btn('menu.create', 'primary', () => this.ev.onCreate());
+      for (const input of [name, code]) input?.addEventListener('keydown', (e) => e.key === 'Enter' && go.click());
+      panel.append(h('div', { class: 'actions' }, go, back()), status());
+      col.append(panel);
+    } else if (this.mode === 'main') {
+      const items = h('div', { class: 'items' });
+      const open = (view: 'create' | 'join' | 'settings') => () => {
+        this.view = view;
+        this.renderMenu();
+      };
+      if (this.inviteCode) items.append(this.btn('menu.joinCode', 'item invite', open('join'), { code: this.inviteCode }));
+      items.append(this.btn('menu.create', 'item', open('create')), this.btn('menu.join', 'item', open('join')), this.btn('menu.settings', 'item', open('settings')));
+      col.append(this.logo(), items, status());
     } else {
       col.append(
-        h('div', { class: 'logo' }, h('div', { class: 'logo-mark', style: 'font-size:34px' }, t('menu.paused')), h('div', { class: 'logo-rule' })),
-        this.btn('menu.resume', 'primary', () => this.ev.onResume()),
-        this.btn('menu.invite', '', () => this.ev.onInvite()),
-        this.btn('menu.settings', '', () => {
-          this.view = 'settings';
-          this.renderMenu();
-        }),
-        this.btn('menu.leave', 'danger', () => this.ev.onLeave()),
+        this.heading('menu.paused'),
+        h(
+          'div',
+          { class: 'items' },
+          this.btn('menu.resume', 'item', () => this.ev.onResume()),
+          this.btn('menu.invite', 'item', () => this.ev.onInvite()),
+          this.btn('menu.settings', 'item', () => {
+            this.view = 'settings';
+            this.renderMenu();
+          }),
+          this.btn('menu.leave', 'item danger', () => this.ev.onLeave()),
+        ),
       );
     }
     const nodes: Node[] = [col];
     if (this.mode === 'main') {
-      nodes.push(h('div', { class: 'menu-foot' }, h('span', {}, t('hud.controls')), h('span', {}, t('menu.build', { v: VERSION }))));
+      const lang = h('div', { class: 'lang' });
+      for (const [code, label] of [['en', 'EN'], ['de', 'DE']] as const) {
+        const b = h('button', { type: 'button', class: settings.get('lang') === code ? 'on' : '', 'aria-label': code === 'en' ? 'English' : 'Deutsch' }, label);
+        b.addEventListener('click', () => {
+          this.ev.onSound('ui');
+          settings.set('lang', code);
+          this.renderMenu();
+        });
+        lang.append(b);
+      }
+      nodes.push(h('div', { class: 'menu-foot' }, h('span', {}, t('menu.build', { v: VERSION })), lang));
     }
+    this.menu.classList.toggle('deep', this.view !== 'home');
     this.menu.replaceChildren(...nodes);
+    // keep keyboard focus useful after a re-render
+    const first = this.menu.querySelector<HTMLElement>(this.view === 'join' ? 'input.code' : '.view-create input');
+    if (first && document.activeElement === document.body) first.focus({ preventScroll: true });
   }
 
   private settingsPanel(): HTMLElement {
@@ -302,6 +332,7 @@ export class UI {
     this.crosshair.classList.toggle('focus', !!p && !p.locked);
     this.promptEl.classList.toggle('hidden', !p);
     this.promptEl.classList.toggle('locked', !!p?.locked);
+    this.promptEl.classList.toggle('hold', !!p?.hold && !p?.locked);
     if (p) this.promptEl.replaceChildren(p.locked ? h('span', { class: 'lockcap' }, '×') : h('span', { class: 'keycap' }, 'E'), h('span', {}, p.text));
   }
 
@@ -326,7 +357,7 @@ export class UI {
         h(
           'div',
           { class: 'crew-item' },
-          h('i', { class: 'crew-dot', style: `background:${hex};box-shadow:0 0 8px ${hex}` }),
+          h('i', { class: 'crew-dot', style: `background:${hex}` }),
           h('span', { class: 'crew-name' }, r.name),
           r.role ? h('span', { class: 'crew-role' }, r.role) : null,
           h('span', { class: 'bars' + (r.talking ? ' on' : '') }, h('i'), h('i'), h('i')),
@@ -402,6 +433,7 @@ export class UI {
   }
 
   refresh() {
+    document.title = gameTitle();
     this.lastPrompt = this.lastObjective = this.lastCrew = this.lastMic = '\0';
     for (const el of this.root.querySelectorAll<HTMLElement>('[data-i18n]')) el.textContent = t(el.dataset.i18n!);
     this.renderMenu();
