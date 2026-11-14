@@ -1,0 +1,76 @@
+/* HUD of the night watchman (src/game/mech/guard.ts): a small eye that fills while a guard notices you. */
+
+.gd-hud {
+  position: absolute;
+  left: 50%;
+  top: 15%;
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  pointer-events: none;
+  opacity: 0.9;
+  transition: opacity 0.25s ease;
+  --gd-col: #e8c27a;
+}
+.gd-hud.gd-hidden {
+  opacity: 0;
+}
+.gd-hud.gd-red {
+  --gd-col: #ff4a3d;
+}
+
+.gd-eye {
+  width: 46px;
+  height: 46px;
+  overflow: visible;
+  filter: drop-shadow(0 0 6px rgba(0, 0, 0, 0.6));
+}
+.gd-track {
+  fill: none;
+  stroke: rgba(255, 255, 255, 0.16);
+  stroke-width: 3;
+}
+.gd-fill {
+  fill: none;
+  stroke: var(--gd-col);
+  stroke-width: 3.5;
+  stroke-linecap: round;
+  stroke-dasharray: 100 100;
+  stroke-dashoffset: 100;
+  transition: stroke-dashoffset 0.12s linear, stroke 0.2s ease;
+}
+.gd-lid {
+  fill: rgba(10, 12, 16, 0.55);
+  stroke: var(--gd-col);
+  stroke-width: 2.4;
+  stroke-linejoin: round;
+  transform-origin: 32px 32px;
+  transform: scaleY(var(--gd-open, 0.35));
+  transition: transform 0.15s ease, stroke 0.2s ease;
+}
+.gd-pupil {
+  fill: var(--gd-col);
+  transform-origin: 32px 32px;
+  transform: scaleY(var(--gd-open, 0.35));
+  transition: transform 0.15s ease, fill 0.2s ease;
+}
+.gd-label {
+  font: 600 10px/1 system-ui, sans-serif;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--gd-col);
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.8);
+}
+.gd-red .gd-eye {
+  animation: gd-pulse 0.7s ease-in-out infinite alternate;
+}
+@keyframes gd-pulse {
+  from {
+    transform: scale(1);
+  }
+  to {
+    transform: scale(1.1);
+  }
+}

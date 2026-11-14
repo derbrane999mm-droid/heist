@@ -1,0 +1,289 @@
+/* Lock picking overlay. Uses the variables and .label / .keycap from ui/styles.css. */
+
+.lock {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: min(640px, 92vw);
+  min-width: 300px;
+  padding: 16px 22px 15px;
+  background: rgba(13, 12, 11, 0.92);
+  border: 1px solid var(--line-strong);
+  border-top: 3px solid var(--accent);
+  border-radius: 4px;
+  backdrop-filter: blur(10px);
+  box-shadow: 0 30px 90px rgba(0, 0, 0, 0.6);
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  transition: border-color 0.15s;
+}
+.lock.slip {
+  border-color: var(--danger);
+  animation: lk-shake 0.4s ease-out;
+}
+.lock.open {
+  border-top-color: var(--ok);
+}
+.lock.broke,
+.lock.timeout {
+  border-top-color: var(--danger);
+}
+@keyframes lk-shake {
+  0% {
+    transform: translate(calc(-50% - 9px), -50%);
+  }
+  25% {
+    transform: translate(calc(-50% + 7px), -50%);
+  }
+  50% {
+    transform: translate(calc(-50% - 5px), -50%);
+  }
+  75% {
+    transform: translate(calc(-50% + 2px), -50%);
+  }
+  100% {
+    transform: translate(-50%, -50%);
+  }
+}
+
+#ui.lk-open .objective {
+  visibility: hidden;
+}
+
+.lk-head {
+  display: flex;
+  align-items: baseline;
+  gap: 14px;
+}
+.lk-head .label {
+  color: var(--accent);
+}
+.lk-title {
+  font-family: var(--display);
+  font-size: 28px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  line-height: 1;
+  white-space: nowrap;
+}
+.lk-pinno {
+  margin-left: auto;
+  font-family: var(--mono);
+  font-size: 13px;
+  letter-spacing: 0.06em;
+  color: var(--dim);
+  white-space: nowrap;
+}
+.lk-clock {
+  font-family: var(--mono);
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  min-width: 40px;
+  text-align: right;
+}
+.lk-clock.low {
+  color: var(--danger);
+}
+
+.lk-time {
+  height: 4px;
+  margin-top: -6px;
+  background: rgba(236, 231, 223, 0.1);
+  border-radius: 2px;
+  overflow: hidden;
+}
+.lk-time i {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+}
+.lk-time.low i {
+  background: var(--danger);
+}
+
+/* the pins: a driver pin in a slot, lifted past the shear line when set */
+.lk-pins {
+  display: flex;
+  justify-content: center;
+  gap: 16px;
+  padding-top: 4px;
+}
+.lk-pin {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+}
+.lk-slot {
+  position: relative;
+  width: 46px;
+  height: 112px;
+  background: #0a0908;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  overflow: hidden;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+.lk-slot::before {
+  /* the shear line */
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 18px;
+  height: 1px;
+  background: rgba(236, 231, 223, 0.22);
+}
+.lk-bar {
+  position: absolute;
+  left: 5px;
+  right: 5px;
+  bottom: 5px;
+  height: 52px;
+  background: #5d5850;
+  border-radius: 2px;
+  transition: transform 0.18s cubic-bezier(0.3, 1.4, 0.5, 1), background 0.15s, box-shadow 0.15s;
+}
+.lk-pin.cur .lk-slot {
+  border-color: var(--accent);
+  box-shadow: 0 0 18px rgba(233, 182, 58, 0.22);
+}
+.lk-pin.cur .lk-bar {
+  background: #8d867a;
+}
+.lk-pin.set .lk-bar {
+  transform: translateY(-48px);
+  background: var(--accent);
+  box-shadow: 0 0 14px rgba(233, 182, 58, 0.45);
+}
+.lock.open .lk-pin .lk-slot {
+  border-color: var(--ok);
+}
+.lock.open .lk-pin .lk-bar {
+  background: var(--ok);
+  box-shadow: 0 0 14px rgba(111, 191, 115, 0.45);
+}
+.lk-n {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--faint);
+}
+.lk-pin.cur .lk-n {
+  color: var(--accent);
+}
+
+/* the sweep */
+.lk-track {
+  position: relative;
+  height: 40px;
+  background: #0a0908;
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  background-image: repeating-linear-gradient(90deg, transparent 0, transparent calc(10% - 1px), rgba(236, 231, 223, 0.07) calc(10% - 1px), rgba(236, 231, 223, 0.07) 10%);
+}
+.lk-zone {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  background: rgba(233, 182, 58, 0.26);
+  border-left: 2px solid var(--accent);
+  border-right: 2px solid var(--accent);
+  box-sizing: border-box;
+  transition: background 0.08s, box-shadow 0.08s;
+}
+.lk-track.hit .lk-zone {
+  background: rgba(233, 182, 58, 0.6);
+  box-shadow: 0 0 22px rgba(233, 182, 58, 0.45);
+}
+.lk-marker {
+  position: absolute;
+  top: -5px;
+  bottom: -5px;
+  width: 4px;
+  margin-left: -2px;
+  background: var(--text);
+  border-radius: 2px;
+  box-shadow: 0 0 10px rgba(236, 231, 223, 0.7);
+}
+
+.lk-foot {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  min-height: 26px;
+}
+.lk-msg {
+  flex: 1;
+  font-size: 14px;
+  letter-spacing: 0.03em;
+  color: var(--dim);
+}
+.lk-msg.good {
+  color: var(--ok);
+}
+.lk-msg.bad {
+  color: var(--danger);
+}
+.lock.open .lk-msg {
+  font-family: var(--display);
+  font-size: 24px;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+}
+.lk-slips {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  white-space: nowrap;
+}
+.lk-dots {
+  display: inline-flex;
+  gap: 5px;
+}
+.lk-dots i {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--text);
+  opacity: 0.85;
+}
+.lk-dots i.used {
+  background: transparent;
+  border: 1px solid var(--danger);
+  opacity: 0.8;
+}
+.lock.low .lk-dots i:not(.used) {
+  background: var(--danger);
+}
+
+.lk-keys {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 20px;
+  font-size: 13px;
+  letter-spacing: 0.04em;
+  color: var(--dim);
+  min-height: 26px;
+}
+.lk-key {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+.lk-key .keycap {
+  font-size: 12px;
+  min-width: 24px;
+  height: 24px;
+  padding: 0 7px;
+}
+.lk-key span:last-child {
+  margin-left: 3px;
+}
+.lk-leave {
+  margin-left: auto;
+}

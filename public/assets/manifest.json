@@ -143,6 +143,54 @@
   "ceiling_tile": {
    "color": "tex/ceiling_tile/color.jpg",
    "note": "One suspended acoustic ceiling panel (speckled white mineral fibre) including its T-bar frame; repeats into a grid. Colour only, NON-SQUARE 1:2 texture (512x1024). | tile ~0.6 x 1.2 m"
+  },
+  "concrete_yard_stained": {
+   "color": "tex/concrete_yard_stained/color.jpg",
+   "normal": "tex/concrete_yard_stained/normal.jpg",
+   "rough": "tex/concrete_yard_stained/rough.jpg",
+   "note": "Poured outdoor concrete slab, grey-beige with dark oil/water stains, hairline cracks and expansion joints. Yards, loading areas, garage floors. | tile ~2.0 x 2.0 m"
+  },
+  "asphalt_cracked": {
+   "color": "tex/asphalt_cracked/color.jpg",
+   "normal": "tex/asphalt_cracked/normal.jpg",
+   "rough": "tex/asphalt_cracked/rough.jpg",
+   "note": "Weathered grey road asphalt with long cracks and patched seams; streets and car parks. | tile ~3.0 x 3.0 m"
+  },
+  "plaster_grey_dirty": {
+   "color": "tex/plaster_grey_dirty/color.jpg",
+   "normal": "tex/plaster_grey_dirty/normal.jpg",
+   "rough": "tex/plaster_grey_dirty/rough.jpg",
+   "note": "Rough grey exterior render with dirt streaks and small blemishes; facades of plain commercial buildings. | tile ~1.0 x 1.0 m (use 2-3 m on large facades)"
+  },
+  "concrete_wall_panels": {
+   "color": "tex/concrete_wall_panels/color.jpg",
+   "normal": "tex/concrete_wall_panels/normal.jpg",
+   "rough": "tex/concrete_wall_panels/rough.jpg",
+   "note": "Smooth precast concrete wall with horizontal formwork seams and faint stains; boundary walls, car park structures. | tile ~2.0 x 2.0 m"
+  },
+  "metal_shutter_painted": {
+   "color": "tex/metal_shutter_painted/color.jpg",
+   "normal": "tex/metal_shutter_painted/normal.jpg",
+   "rough": "tex/metal_shutter_painted/rough.jpg",
+   "note": "Painted steel roller shutter: horizontal slats, worn grey paint with scratches. Roller doors, garage shutters. | tile ~2.0 x 2.0 m, slats along U"
+  },
+  "metal_corrugated": {
+   "color": "tex/metal_corrugated/color.jpg",
+   "normal": "tex/metal_corrugated/normal.jpg",
+   "rough": "tex/metal_corrugated/rough.jpg",
+   "note": "Galvanised corrugated steel sheet, ribs running along V (vertical), light grime. Gates, fences, sheds, cladding. | tile ~2.7 x 2.7 m"
+  },
+  "pavers_concrete": {
+   "color": "tex/pavers_concrete/color.jpg",
+   "normal": "tex/pavers_concrete/normal.jpg",
+   "rough": "tex/pavers_concrete/rough.jpg",
+   "note": "Grey interlocking concrete pavers (bone/wave shape) as used on Central European pavements. | tile ~1.8 x 1.8 m"
+  },
+  "metal_rusty": {
+   "color": "tex/metal_rusty/color.jpg",
+   "normal": "tex/metal_rusty/normal.jpg",
+   "rough": "tex/metal_rusty/rough.jpg",
+   "note": "Painted sheet metal with heavy orange rust patches; skips, old bins, weathered steel parts. | tile ~1.0 x 1.0 m"
   }
  },
  "hdr": [
@@ -184,6 +232,16 @@
    "file": "models/vase_flowers.glb",
    "note": "Small glass vase with flowers, table decoration. 0.22 x 0.14 m footprint, ~10k triangles. Glass uses transmission. CC0 (Eric Chadwick, Rico Cilliers).",
    "approxHeightMetres": 0.2
+  },
+  {
+   "file": "models/trashbag.glb",
+   "note": "Full black plastic rubbish bag, tied at the top. 0.53 x 0.46 m footprint, ~4.5k triangles, origin at the base. Textures WebP 1k. CC0 (Poly Haven).",
+   "approxHeightMetres": 0.57
+  },
+  {
+   "file": "models/utility_box.glb",
+   "note": "Grey street-side electrical cabinet (cable distribution box) with a small warning label (English text) and a concrete plinth. 0.52 x 0.43 m footprint, ~4.4k triangles. Textures WebP 1k. CC0 (Poly Haven).",
+   "approxHeightMetres": 1.12
   }
  ]
 }
