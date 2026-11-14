@@ -1,6 +1,6 @@
 // Screenshot tour of the UI: main menu (EN/DE, 1280x720 and 1920x1080), dialogs, settings,
 // in-game HUD in the casino, pause menu and the lineup overlay (voting and reveal).
-// Usage: flock /tmp/nv-browser.lock node tests/shots-menu.mjs [menu,hud,lineup]
+// Usage: node tests/shots-menu.mjs [menu,hud,lineup]
 import { startServers, openPlayer, sleep, OUT } from './harness.mjs';
 import fs from 'node:fs';
 fs.mkdirSync(OUT, { recursive: true });

@@ -1,5 +1,5 @@
 // Hacking terminals (calib level "hack"): host + client, then a late joiner.
-// Run: flock /tmp/nv-browser.lock node tests/hack.mjs
+// Run: node tests/hack.mjs
 import { startServers, openPlayer, sleep } from './harness.mjs';
 
 let failed = 0;

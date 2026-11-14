@@ -1,5 +1,5 @@
 // Calibration range (shooting): host + one client, difficulty 1.
-//   flock /tmp/nv-browser.lock node tests/range.mjs
+//   node tests/range.mjs
 import { startServers, openPlayer, sleep } from './harness.mjs';
 
 let failed = 0;

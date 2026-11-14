@@ -1,5 +1,5 @@
 // Screenshots of the hacking calibration level: the room, every terminal overlay, the end card.
-// Run: flock /tmp/nv-browser.lock node tests/shots-hack.mjs [quality=medium] [diff=2] [lang=en] [only,names]
+// Run: node tests/shots-hack.mjs [quality=medium] [diff=2] [lang=en] [only,names]
 import { startServers, openPlayer, sleep, OUT } from './harness.mjs';
 import fs from 'node:fs';
 fs.mkdirSync(OUT, { recursive: true });

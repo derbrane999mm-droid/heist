@@ -4,9 +4,37 @@ import { PeerServer } from 'peer';
 import { createServer, preview } from 'vite';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
+import { existsSync } from 'node:fs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 export const OUT = path.join(root, 'test-out');
+
+/** Local Chrome. NV_CHROME overrides the path. */
+function chromePath() {
+  if (process.env.NV_CHROME) return process.env.NV_CHROME;
+  const candidates = {
+    darwin: [
+      '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
+      '/Applications/Chromium.app/Contents/MacOS/Chromium',
+      '/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge',
+    ],
+    win32: [
+      'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
+      'C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe',
+    ],
+  }[process.platform] ?? ['/usr/bin/google-chrome', '/usr/bin/chromium', '/usr/bin/chromium-browser'];
+  const found = candidates.find((p) => existsSync(p));
+  if (!found) throw new Error('No Chrome found. Set NV_CHROME to the browser executable.');
+  return found;
+}
+
+/** Real GPU by default. NV_SOFTWARE=1 forces software rendering (machines without a GPU). */
+function gpuArgs() {
+  if (process.env.NV_SOFTWARE) return ['--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'];
+  const args = ['--enable-gpu', '--ignore-gpu-blocklist'];
+  if (process.platform === 'darwin') args.push('--use-angle=metal');
+  return args;
+}
 
 export async function startServers({ port = 5188, sigPort = 9010 } = {}) {
   const ps = PeerServer({ port: sigPort, path: '/', host: '127.0.0.1' });
@@ -16,12 +44,10 @@ export async function startServers({ port = 5188, sigPort = 9010 } = {}) {
     : await createServer({ root, server: { port, host: '127.0.0.1', strictPort: true }, logLevel: 'error' });
   if (!process.env.NV_DIST) await vite.listen();
   const browser = await chromium.launch({
-    executablePath: '/usr/bin/google-chrome',
-    headless: true,
+    executablePath: chromePath(),
+    headless: !process.env.NV_HEADED,
     args: [
-      '--use-angle=swiftshader',
-      '--enable-unsafe-swiftshader',
-      '--ignore-gpu-blocklist',
+      ...gpuArgs(),
       '--use-fake-ui-for-media-stream',
       '--use-fake-device-for-media-stream',
       '--disable-features=WebRtcHideLocalIpsWithMdns',

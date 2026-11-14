@@ -109,7 +109,7 @@ Who decides: stake = Zocker (`gambler`); scouting, shopping, entrance and target
 
 Starting a job: `deps.plan?.start()` from a level (LevelDeps.plan), `?plan=1` (host starts right after the session starts), or `window.__nv.plan.start()`. `plan.running()` is true until the debrief. Tests: `window.__nvPlanTimes = { board: 90000, … }` shortens or lengthens the phase timers, `window.__nvPlanSeed` fixes the job. The host stores `missions['plan.varga'] = { stars, best }` in the campaign save at the debrief.
 
-Tests: `node tests/plan-logic.mjs` (rules, balance, privacy of the public view), `flock /tmp/nv-browser.lock node tests/plan.mjs` (4 players + solo), `tests/shots-plan.mjs` (screenshots).
+Tests: `node tests/plan-logic.mjs` (rules, balance, privacy of the public view), `node tests/plan.mjs` (4 players + solo), `tests/shots-plan.mjs` (screenshots).
 
 ## Rules (each one exists because breaking it caused a visible bug)
 
@@ -127,7 +127,7 @@ Tests: `node tests/plan-logic.mjs` (rules, balance, privacy of the public view),
 
 - `npx tsc --noEmit` must be clean, `npm run build` must succeed.
 - Browser tests: copy the pattern in tests/lineup.mjs. `startServers({ port, sigPort })` (use your own ports), `openPlayer(env, { name, quality: 'low', width: 420, height: 240, renderSkip: 12, extra: '&level=<name>' })`, then drive the game through `window.__nv` (`start(code)`, `tp(x, y, z, yaw, pitch)`, `input.debugSet(code, down)`, `interactions.debugUse(id)`, `session`, `player`, `level`).
-- The test machine has no GPU and two cores: software rendering runs at a few frames per second. Keep browser runs short, never run two at once, and allow generous timeouts.
+- The harness launches the local Chrome with the real GPU (see CLAUDE.md for `NV_CHROME`, `NV_SOFTWARE`, `NV_HEADED`). Tests may run in parallel as long as each uses its own ports. After waiting for a state change on the host, wait for the page you check as well: on a fast machine a client has not redrawn yet.
 - Look at your level: `node tests/shots.mjs medium` style screenshots into `test-out/`, then open the PNG.
 
 ## Calibration samples (`calib-*` levels)
@@ -136,4 +136,3 @@ Throwaway challenges Mert rates to set the difficulty baseline. Conventions:
 - Difficulty comes from `deps.options.diff` (`'1' | '2' | '3'`, default 2).
 - Failure sends the crew back to the last checkpoint and counts a fail. No hard game-over.
 - On completion the host sets `session.set('calib.result', { level, diff, timeMs, fails, stars })` (stars 1–3) and the level shows a short end card.
-- Machine-wide lock for browser tests, because several agents share two CPU cores: always run them as `flock /tmp/nv-browser.lock node tests/<name>.mjs`.

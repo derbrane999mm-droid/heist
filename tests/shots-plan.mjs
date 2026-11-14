@@ -1,6 +1,6 @@
 // Screenshots of the planning round: shared scouting board on two pages, a private offer,
 // a job decision as decider and as onlooker, the accusation and the debrief.
-// Run: flock /tmp/nv-browser.lock node tests/shots-plan.mjs   (files in test-out/plan-*.png)
+// Run: node tests/shots-plan.mjs   (files in test-out/plan-*.png)
 import { startServers, sleep, OUT } from './harness.mjs';
 import fs from 'node:fs';
 import { until, pub, act, click, crewOf4, waitForJob, pagesByRole, phaseIs } from './plan-flow.mjs';

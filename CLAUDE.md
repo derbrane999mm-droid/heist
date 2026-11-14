@@ -41,7 +41,7 @@ node tests/e2e.mjs            # big 4-player run of the old foundation (browser)
 ./scripts/deploy.sh  # build and force-push dist/ to gh-pages (the public site)
 ```
 
-`NV_DIST=1` in front of a browser test runs it against the production build. `tests/harness.mjs` is written for the cloud sandbox this project started in: it launches `/usr/bin/google-chrome` with software rendering and the tests were serialised with `flock /tmp/nv-browser.lock`. On a real machine, point it at the local Chrome, use the GPU, and run tests in parallel.
+`NV_DIST=1` in front of a browser test runs it against the production build. `tests/harness.mjs` finds the local Chrome and uses the real GPU; browser tests may run in parallel (each has its own ports). `NV_CHROME=<path>` picks another browser, `NV_SOFTWARE=1` forces software rendering (machines without a GPU), `NV_HEADED=1` shows the windows.
 
 ## Hard rules (each caused a visible bug)
 

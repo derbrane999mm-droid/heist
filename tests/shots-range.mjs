@@ -1,5 +1,5 @@
 // Screenshot tour of the calibration range (shooting).
-//   flock /tmp/nv-browser.lock node tests/shots-range.mjs [quality] [view,view…]
+//   node tests/shots-range.mjs [quality] [view,view…]
 import { startServers, openPlayer, sleep, OUT } from './harness.mjs';
 import fs from 'node:fs';
 fs.mkdirSync(OUT, { recursive: true });
