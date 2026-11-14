@@ -1,5 +1,5 @@
 // The planning round with four players (lineup in fast mode, then one job), plus a solo run with bots.
-// Run: flock /tmp/nv-browser.lock node tests/plan.mjs
+// Run: node tests/plan.mjs
 import { startServers, openPlayer, sleep } from './harness.mjs';
 import { until, ROLES, pub, act, priv, click, crewOf4, waitForJob, pagesByRole, phaseIs } from './plan-flow.mjs';
 
@@ -100,6 +100,8 @@ try {
   const after = await secretOffers(host);
   check('answers applied after everyone answered', after.find((o) => o.role === 'gambler' && o.when === 'pre').state === 'accepted' && after.filter((o) => o.when === 'pre' && o.role !== 'gambler').every((o) => o.state === 'declined'), gOffer.id);
   if (gOffer.id === 'tipp') {
+    // the host changed phase first: give the owner's page a moment to draw it
+    await until(() => by.gambler.evaluate(() => !!document.querySelector('.plan-ov .private.tip')), 5000, 100);
     const tips = await Promise.all(pages.map((p) => p.evaluate(() => !!document.querySelector('.plan-ov .private.tip'))));
     check('the secret tip shows only on its owner\'s page', tips[pages.indexOf(by.gambler)] && tips.filter(Boolean).length === 1);
   }
@@ -115,10 +117,11 @@ try {
   check('shopping: tools bought from the shared list', p2.tools.includes('bohrer') && p2.tools.includes('scanner') && p2.budget === p1.budget - 950);
 
   // ---- plan: everyone sets his own post
+  await until(() => by.bait.evaluate(() => !!document.querySelector('.plan-ov [data-post="bait:lookout"]')), 5000, 100);
   check('posts: only your own seat is editable', await by.bait.evaluate(() => {
     const own = document.querySelector('.plan-ov [data-post="bait:lookout"]');
     const other = document.querySelector('.plan-ov [data-post="hands:lookout"]');
-    return own && own.getAttribute('aria-disabled') !== 'true' && other && other.getAttribute('aria-disabled') === 'true';
+    return !!own && own.getAttribute('aria-disabled') !== 'true' && !!other && other.getAttribute('aria-disabled') === 'true';
   }));
   await act(by.bait, { t: 'post', role: 'hands', post: 'lookout' });
   await click(by.hands, '[data-post="hands:inside"]');

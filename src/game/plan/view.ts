@@ -36,6 +36,8 @@ export class PlanView {
   private s: Session | null = null;
   private priv: any = null;
   private key = '';
+  private shownPhase = '';
+  private shownJob: unknown = null;
   private open = false;
   private dismissed = -1;
   private frozeIt = false;
@@ -87,10 +89,15 @@ export class PlanView {
   attach(s: Session) {
     this.s = s;
     this.key = '';
+    this.shownPhase = '';
+    this.shownJob = null;
     this.unsub.push(
       s.onPrivate((name, a) => {
         if (name !== 'plan.priv') return;
         this.received.push(a);
+        // a different offer starts with nothing picked
+        const was = this.priv?.offer, now = a?.offer;
+        if ((was?.id ?? null) !== (now?.id ?? null) || (was?.when ?? null) !== (now?.when ?? null)) this.offerSel = { t: null, p: null };
         this.priv = a;
         this.key = '';
       }),
@@ -145,7 +152,11 @@ export class PlanView {
     const key = [p.job, p.v, p.phase, JSON.stringify(this.priv), this.offerSel.t, this.offerSel.p, this.accSel, this.lang()].join('|');
     if (key !== this.key) {
       const newBeats = (p.run?.beats?.length ?? 0) > this.lastBeats;
-      const phaseChanged = this.key.split('|')[2] !== p.phase || this.key.split('|')[0] !== String(p.job);
+      // tracked apart from the key: a click clears the key to force a redraw, and that must not count as a new phase
+      // (it used to, which wiped the target picked for a secret offer before it could be accepted)
+      const phaseChanged = this.shownPhase !== p.phase || this.shownJob !== p.job;
+      this.shownPhase = p.phase;
+      this.shownJob = p.job;
       if (phaseChanged) {
         this.offerSel = { t: null, p: null };
         if (p.phase !== 'accuse') this.accSel = null;
