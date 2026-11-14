@@ -5,7 +5,7 @@
 import type { Session } from '../../net/session';
 import { loadCampaign, saveCampaign } from '../../core/save';
 import { roleOf, lineupRunning } from '../lineup';
-import { PlanMachine, ROLE_ORDER, type Role, type Seat, type Times, type Action, type PrivateView } from './logic';
+import { PlanMachine, ROLE_ORDER, VARGA, type Role, type Seat, type Times, type Action, type PrivateView } from './logic';
 
 export interface PlanApi {
   /** Start a job for the crew (runs the lineup first if roles are missing). Any crew member may ask; the host decides. */
@@ -172,6 +172,57 @@ export class PlanController implements PlanApi {
       this.privSent.set(pid, j);
       s.sendTo(pid, 'plan.priv', pv);
     }
+  }
+
+  /**
+   * DEVELOPMENT HELPER (URL `?plan=1&to=<phase>[&seed=<n>]`, see main.ts): for a solo host, start a job
+   * with 60 minute phase timers and click through the preparation (through the same `plan.act` intent a
+   * real click sends) until `to` is reached. Does nothing for a crew, an unknown phase or without the URL.
+   */
+  devJump(to: string, seed?: number) {
+    const s = this.s;
+    const order = ['stake', 'brief', 'scout', 'facts', 'offer', 'shop', 'plan'];
+    if (!s || !s.isHost || s.players.size !== 1 || order.indexOf(to) < 0) return;
+    const w = window as any;
+    if (!w.__nvPlanTimes) {
+      const H = 3600000;
+      w.__nvPlanTimes = { stake: H, brief: H, board: H, facts: H, offer: H, decide: H, accuse: H, beat: 150, bot: 500 };
+    }
+    if (seed && Number.isFinite(seed)) w.__nvPlanSeed = seed;
+    this.start();
+    const target = order.indexOf(to);
+    const t0 = Date.now();
+    let acted = '';
+    const stop = window.setInterval(() => {
+      const ss = this.s;
+      const p = ss?.get<any>('plan');
+      if (!ss || !p || Date.now() - t0 > 60000 || s.players.size !== 1) return void clearInterval(stop);
+      const i = order.indexOf(p.phase);
+      if (p.phase === 'run' || p.phase === 'accuse' || p.phase === 'debrief' || i >= target) return void clearInterval(stop);
+      if (i < 0) return;
+      const key = p.job + ':' + p.phase;
+      const act = (a: any) => ss.intent('plan.act', a);
+      if (p.phase === 'scout') {
+        if (acted !== key) {
+          acted = key;
+          for (const sc of VARGA.scouts.slice(0, VARGA.scoutCount)) act({ t: 'scout', id: sc.id });
+        } else if (p.board.scout.length === VARGA.scoutCount && acted !== key + 'c') {
+          acted = key + 'c';
+          act({ t: 'confirm' });
+        }
+        return;
+      }
+      if (acted === key) return;
+      if (p.phase === 'brief' || p.phase === 'facts' || p.phase === 'shop') {
+        acted = key;
+        act({ t: 'confirm' });
+      } else if (p.phase === 'offer') {
+        if (this.m?.priv('brain').offer) {
+          acted = key;
+          act({ t: 'offer', answer: 'decline' });
+        }
+      }
+    }, 150);
   }
 
   /** Test hook: the host's machine (holds every secret; never replicated). */

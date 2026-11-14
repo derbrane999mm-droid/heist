@@ -63,3 +63,7 @@ export async function pagesByRole(pages) {
 }
 
 export const phaseIs = (page, ph) => until(async () => (await pub(page))?.phase === ph, 60000);
+
+/** Wait until the plan overlay has actually drawn `ph` (the page lags the replicated state by a frame or two). */
+export const domPhase = (page, ph, ms = 30000) =>
+  until(() => page.evaluate((ph) => !!document.querySelector('.plan-ov') && window.__nv.plan.view.shownPhase === ph, ph), ms, 100);

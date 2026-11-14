@@ -209,7 +209,12 @@ async function boot() {
     lineupView.attach(s);
     plan.attach(s);
     planView.attach(s);
-    if (q.get('plan') === '1' && s.isHost) window.setTimeout(() => plan.start(), 1500);
+    if (q.get('plan') === '1' && s.isHost) {
+      // dev helper: `&to=<phase>` jumps a solo job to that preparation step (`&seed=<n>` fixes the job)
+      const to = q.get('to');
+      if (to) window.setTimeout(() => plan.devJump(to, Number(q.get('seed')) || undefined), 1500);
+      else window.setTimeout(() => plan.start(), 1500);
+    }
     syncCrew();
 
     mode = 'playing';
