@@ -31,7 +31,21 @@ async function boot() {
   const stage = (name: string) => console.debug(`[nv] ${name} +${Math.round(performance.now() - t0)}ms`);
   const q = new URLSearchParams(location.search);
   const netReady = loadNetConfig(); // optional public/net.json: relay and signalling server without a rebuild
-  const invite = normalizeCode(q.get('c') || location.hash.replace('#', '') || '');
+  // Coming back into a running evening: the crew code of the last crew joined is kept for this tab (sessionStorage:
+  // survives a reload or a crash restore, ends with a deliberate "leave") and, as a one-click offer, for 10 hours.
+  const store = {
+    get: (k: string) => { try { return sessionStorage.getItem(k) || ''; } catch { return ''; } },
+    set: (k: string, v: string) => { try { sessionStorage.setItem(k, v); } catch { /* storage blocked */ } },
+    del: (k: string) => { try { sessionStorage.removeItem(k); } catch { /* storage blocked */ } },
+  };
+  let lastCrew = '';
+  try {
+    const lc = JSON.parse(localStorage.getItem('nv.lastCrew') || 'null');
+    if (lc && Date.now() - Number(lc.at) < 10 * 3600 * 1000) lastCrew = normalizeCode(String(lc.code || ''));
+  } catch { /* none */ }
+  const urlInvite = normalizeCode(q.get('c') || location.hash.replace('#', '') || '');
+  const rejoinCode = normalizeCode(store.get('nv.rejoin'));
+  const invite = urlInvite || (rejoinCode.length === 5 ? rejoinCode : lastCrew);
   let mode: Mode = 'menu';
   let session: Session | null = null;
   let voice: Voice | null = null;
@@ -167,14 +181,22 @@ async function boot() {
     const name = settings.get('name') || 'Crew ' + Math.floor(10 + Math.random() * 89);
     const pid = playerId() + (q.get('pid') ?? ''); // ?pid= lets one browser run several test players
     let s: Session;
+    let hostCode = '';
+    try { hostCode = localStorage.getItem('nv.hostCode') || ''; } catch { /* none */ }
     try {
-      s = code === null ? await Session.host(pid, name, settings.get('color')) : await Session.join(code, pid, name, settings.get('color'));
+      s = code === null ? await Session.host(pid, name, settings.get('color'), hostCode) : await Session.join(code, pid, name, settings.get('color'));
     } catch (e) {
+      store.del('nv.rejoin');
       ui.setBusy(false);
       ui.setError(describeJoinError(e as JoinError, code ?? ''));
       return;
     }
     session = s;
+    try {
+      if (s.isHost && s.code) localStorage.setItem('nv.hostCode', s.code);
+      if (!s.isHost) localStorage.setItem('nv.lastCrew', JSON.stringify({ code: s.code, at: Date.now() }));
+    } catch { /* storage blocked */ }
+    if (!s.isHost) store.set('nv.rejoin', s.code);
 
     if (s.peer) {
       voice = new Voice(audio, s.peer);
@@ -211,6 +233,7 @@ async function boot() {
         ui.setError(t('toast.hostLost'));
       }
     };
+    s.onHostGone = () => ui.toast(t('toast.hostLost'), 'warn', 12000);
     // everyone in the host's level: the host publishes its level, a guest in another one reloads into it
     // and joins the same crew again (same name, colour and player id, so a seat in a running job comes back)
     if (s.isHost) s.set('meta.level', levelName);
@@ -297,6 +320,7 @@ async function boot() {
 
   function leave() {
     if (!session) return;
+    store.del('nv.rejoin'); // a deliberate leave (or a crew that is gone): no automatic rejoin after the next reload
     lineupView.detach();
     planView.detach();
     director.detach();
@@ -424,6 +448,8 @@ async function boot() {
   ui.hideBoot();
   // reloaded into the host's level (see start()): join the crew again right away
   if (q.get('autojoin') === '1' && invite.length === 5) void start(invite);
+  // reloaded or restored during an evening: back into the same crew (same player id = same seat)
+  else if (!urlInvite && rejoinCode.length === 5) void start(rejoinCode);
 
   // test / debug hooks
   (window as any).__nv = {

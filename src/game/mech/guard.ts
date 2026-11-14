@@ -94,6 +94,8 @@ interface View {
   phase: number;
   amp: number;
   stepAcc: number;
+  /** shown beam length, eased towards the raycast (a ray grazing a door frame jumps 0.3 <-> 7 m) */
+  blen: number;
   lx: number;
   lz: number;
   has: boolean;
@@ -277,7 +279,7 @@ export function createGuards(deps: LevelDeps, opts: GuardOptions): GuardSystem {
     root.add(pool);
     root.visible = false;
     engine.scene.add(root);
-    return { root, body, head, legL, legR, armL, armR, torch, beam, pool, x: 0, y: 0, z: 0, yaw: 0, st: 0, mode: 0, phase: 0, amp: 0, stepAcc: 0, lx: 0, lz: 0, has: false };
+    return { root, body, head, legL, legR, armL, armR, torch, beam, pool, x: 0, y: 0, z: 0, yaw: 0, st: 0, mode: 0, phase: 0, amp: 0, stepAcc: 0, blen: BEAM_LEN, lx: 0, lz: 0, has: false };
   });
 
   // ======================================================================
@@ -492,6 +494,7 @@ export function createGuards(deps: LevelDeps, opts: GuardOptions): GuardSystem {
     v.root.visible = true;
     if (!v.has) {
       v.has = true;
+      v.blen = BEAM_LEN;
       v.lx = tmp.x;
       v.lz = tmp.z;
       v.x = tmp.x;
@@ -540,7 +543,11 @@ export function createGuards(deps: LevelDeps, opts: GuardOptions): GuardSystem {
     v.torch.getWorldQuaternion(quat);
     beamDir.set(0, 1, 0).applyQuaternion(quat);
     const hit = physics.raycast(lensPos, beamDir, BEAM_LEN, selfCollider());
-    const len = hit === null ? BEAM_LEN : Math.max(0.3, hit);
+    const want = hit === null ? BEAM_LEN : Math.max(0.3, hit);
+    // ease the length: shrink fast (the wall hides the rest anyway), grow slower, so a ray that grazes
+    // a door frame or a shelf edge does not make the cone and the floor spot pop on and off every frame
+    v.blen += (want - v.blen) * (1 - Math.exp(-(want < v.blen ? 30 : 9) * dt));
+    const len = v.blen;
     v.beam.scale.setScalar(len / BEAM_LEN);
     const floorT = beamDir.y < -0.02 ? (lensPos.y - v.y) / -beamDir.y : Infinity;
     if (floorT <= len + 0.2) {

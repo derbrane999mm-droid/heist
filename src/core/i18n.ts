@@ -60,7 +60,7 @@ const en: Dict = {
 
   'toast.joined': '{name} joined the crew',
   'toast.left': '{name} left the crew',
-  'toast.hostLost': 'Connection to the host was lost',
+  'toast.hostLost': 'The host is gone. Wait until he creates the crew again, then join with the code.',
   'toast.reconnecting': 'Connection lost — reconnecting…',
   'toast.reconnected': 'Reconnected',
   'toast.offline': 'Could not reach the matchmaking server. Playing offline — friends cannot join this session.',
@@ -263,7 +263,7 @@ const de: Dict = {
 
   'toast.joined': '{name} ist der Crew beigetreten',
   'toast.left': '{name} hat die Crew verlassen',
-  'toast.hostLost': 'Verbindung zum Host verloren',
+  'toast.hostLost': 'Der Host ist weg. Wartet, bis er die Crew neu erstellt, und tretet dann mit dem Code bei.',
   'toast.reconnecting': 'Verbindung verloren — verbinde neu…',
   'toast.reconnected': 'Wieder verbunden',
   'toast.offline': 'Matchmaking-Server nicht erreichbar. Du spielst offline — Freunde können dieser Sitzung nicht beitreten.',

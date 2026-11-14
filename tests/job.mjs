@@ -89,6 +89,41 @@ async function drive(page, me, { hold = false, finishSkill = true, offerMode = '
         await sleep(150);
         break;
       }
+      if (stats.holdSafe && p.run.choice?.at === 'safe') break; // the test looks at the safe from afar first
+      // loot: pick up the nearest bag, carry it to the van, stow it (stats.carry: 'all' | 'one' | 'none')
+      if (!hold && st.loot && !st.game && !st.skill && p.plan.posts[me] === 'inside' && (stats.carry ?? 'all') !== 'none') {
+        const myPid = await page.evaluate(() => window.__nv.session.pid);
+        const L = st.loot;
+        const mine = L.bags.find((b) => b.s === 'carry' && b.by === myPid);
+        const inVan = L.bags.filter((b) => b.s === 'van').length;
+        const van = await page.evaluate(() => window.__nv.job.debugAnchor('van'));
+        if (mine && van) {
+          await page.evaluate((a) => window.__nv.tp(a.x, a.y + 0.02, a.z + 0.3), van);
+          await sleep(250);
+          await page.evaluate(() => window.__nv.job.loot.debugAct('stow'));
+          stats.stowed = (stats.stowed || 0) + 1;
+          await sleep(250);
+          break;
+        }
+        const k = L.bags.findIndex((b) => b.s === 'lie');
+        if (k >= 0 && !L.left && (stats.carry !== 'one' || inVan === 0)) {
+          const b = L.bags[k];
+          await page.evaluate((b) => window.__nv.tp(b.x + 0.3, b.y + 0.02, b.z), b);
+          await sleep(250);
+          await page.evaluate((k) => window.__nv.job.loot.debugAct('take', k), k);
+          stats.taken = (stats.taken || 0) + 1;
+          await sleep(250);
+          break;
+        }
+        if (stats.carry === 'one' && inVan > 0 && !L.left && L.bags.some((b) => b.s === 'lie') && van && !stats.departed) {
+          // "Abfahrt": hold E at the van; everyone sees the countdown
+          await page.evaluate((a) => window.__nv.tp(a.x, a.y + 0.02, a.z + 0.3), van);
+          await sleep(250);
+          await page.evaluate(() => window.__nv.job.loot.debugAct('depart'));
+          stats.departed = Date.now();
+          break;
+        }
+      }
       if (!hold && st.at) await page.evaluate((a) => window.__nv.tp(a.x, a.y + 0.02, a.z + 0.3), st.at);
       if (finishSkill && st.prompt && !st.game) {
         stats.prompts = (stats.prompts || 0) + 1;
@@ -137,13 +172,30 @@ try {
     // follow the job; record objectives; at the vault: first stay away, then walk there
     const objectives = new Set([r0.objective, wobj.objective]);
     const objTexts = new Set([r0.obj, wobj.obj]);
-    const stats = {};
+    const stats = { holdSafe: true };
     let skillSeen = null, openedFar = false, skillDone = false, alertSent = false, doorOpen = false;
+    let standInLock = false, safePopup = null, safeFar = 0, lootCount = '', diceSeen = '';
+    const toasts = new Set();
     let overlayInRun = false, popupNotFrozen = false, decPopup = null, promptBeforeGame = false, gameAfterE = false, logSeen = null, logClosed = false, offerPopup = null, offerTargetStep = false;
     const end = await until(async () => {
-      const st = await dbg(page);
+      let st = await dbg(page);
+      // the safe is answered at its place: away from it, no prompt and no game (they show on arrival)
+      let holdSafe = false;
+      const p0 = await pub(page);
+      if (p0?.run?.choice?.at === 'safe' && st.objective === 'safe' && safeFar < 2) {
+        safeFar++;
+        holdSafe = true;
+        await page.evaluate((a) => window.__nv.tp(a.x, a.y + 0.02, a.z + 8), st.at);
+        await sleep(1200);
+        st = await dbg(page);
+        if (st.prompt || st.game) openedFar = true;
+      }
+      stats.holdSafe = safeFar < 2;
       if (st.objective) objectives.add(st.objective);
       if (st.obj) objTexts.add(st.obj);
+      if (st.loot?.count) lootCount = st.loot.count;
+      if (st.toast) toasts.add(st.toast);
+      if (st.dice) diceSeen = st.dice;
       const pp = await pub(page);
       if (pp && (pp.phase === 'run' || (pp.phase === 'offer' && pp.mid)) && st.overlay) overlayInRun = true;
       if (st.popup === 'decision' && !decPopup) {
@@ -166,28 +218,32 @@ try {
         await sleep(150);
         logClosed = !(await dbg(page)).log;
       }
-      if (st.skill && !skillSeen) {
-        skillSeen = st.skill;
-        await sleep(1500);
-        openedFar = (await dbg(page)).game !== null; // not at the safe yet: must not open
-      }
+      if ((st.skillLog || []).some((x) => x.game === 'lock' && x.standIn && x.holder === 'hands')) standInLock = true;
+      if (!skillSeen) skillSeen = (st.skillLog || []).find((x) => x.game === 'safe') ?? null;
+      if (st.popup === 'decision' && /safe|Tresor/i.test(st.popText)) safePopup = st.popText;
+      if (st.skill && !skillSeen && st.skill.game === 'safe') skillSeen = st.skill;
       const p = await pub(page);
       if (p?.run && !alertSent && p.run.beats.length >= 3) { alertSent = true; await page.evaluate(() => window.__nv.level.guards.fire()); }
       if (!doorOpen) doorOpen = (await page.evaluate(() => window.__nv.level.doors())).liefer;
       // stay away from the safe until its request is here: it must wait for me (the gate gives up after its timeout)
-      await drive(page, 'brain', { hold: st.objective === 'safe' && !skillSeen, stats });
+      await drive(page, 'brain', { hold: holdSafe, stats });
       if ((await dbg(page)).lastResult) skillDone = true;
       return p?.phase === 'debrief' ? p : false;
     }, 240000, 300);
     check('solo: the job runs on the stage until the debrief', !!end);
     check('solo: objectives follow the beats (door, safe, van)', ['door.liefer', 'van'].every((k) => objectives.has(k)) && (!skillSeen || objectives.has('safe')), [...objectives].join(','));
     check('solo: the safe skill request reached the Wortführer', !!skillSeen && skillSeen.game === 'safe' && skillSeen.variant === 'elek', JSON.stringify(skillSeen));
-    check('solo: away from the safe the game does not open (it opens on arrival)', !!skillSeen && !openedFar && skillDone);
+    check('solo: away from the safe no prompt and no game (they show on arrival)', !!skillSeen && safeFar > 0 && !openedFar && skillDone, JSON.stringify({ safeFar, openedFar }));
     const lines = await page.evaluate(() => window.__nv.plan.controller.debugMachine.S.run.beats.flatMap((b) => b.lines.map((l) => l.x?.k ?? l.roll?.label?.k)));
     check('solo: finishing the skill game advances the job with its result', skillDone && lines.includes('ln.skillOk') && !lines.includes('rl.combo'));
     check('solo: the planning overlay stays closed during the run', !overlayInRun);
-    check('solo: a decision is a glass pop-up with its options (player not frozen)', !!decPopup && decPopup.opts >= 2 && popupNotFrozen, JSON.stringify(decPopup));
-    check('solo: decisions were answered with number keys', (stats.decKeys || 0) > 0 && lines.includes('ln.choice'), JSON.stringify(stats));
+    if (decPopup) {
+      check('solo: a decision is a glass pop-up with its options (player not frozen)', decPopup.opts >= 2 && popupNotFrozen, JSON.stringify(decPopup));
+      check('solo: decisions were answered with number keys', (stats.decKeys || 0) > 0 && lines.includes('ln.choice'), JSON.stringify(stats));
+    } else console.log('      solo: no decision pop-up in this job (door and safe are answered at their place)');
+    const who = await page.evaluate(() => window.__nv.plan.controller.debugMachine.S.run.beats.flatMap((b) => b.lines).filter((l) => l.x?.k === 'ln.skillOk' || l.x?.k === 'ln.skillNo').map((l) => l.x.p.who.r));
+    check('solo: the player picked the door lock himself (stand-in for the bot Hände) and opened the safe', standInLock && who.length >= 2 && who.every((r) => r === 'brain'), JSON.stringify({ standInLock, who }));
+    check('solo: the safe asked no pop-up (E at the safe chose the way)', !safePopup && !lines.includes('ln.choice') || !safePopup, String(safePopup));
     check('solo: the secret offer is a glass pop-up with accept/decline', !!offerPopup && offerPopup.btns === 2, JSON.stringify(offerPopup));
     const myOffer = await page.evaluate(() => window.__nv.plan.controller.debugMachine.S.offers.find((o) => o.human && o.when === 'mid'));
     check('solo: accepting the offer with keys (incl. its target step) reached the machine', !!myOffer && myOffer.state === 'accepted' && (!myOffer.target || offerTargetStep), JSON.stringify({ myOffer: myOffer && { id: myOffer.id, state: myOffer.state, target: myOffer.target, partner: myOffer.partner }, offerTargetStep }));
@@ -198,6 +254,11 @@ try {
     check('solo: the entrance opened', doorOpen);
     check('solo: a guard alarm reached the machine', await page.evaluate(() => !!window.__nv.plan.controller.debugMachine.S.run.guardAlert) && lines.includes('ln.guardAlert'));
     const fin = await dbg(page);
+    const runLoot = await page.evaluate(() => window.__nv.plan.controller.debugMachine.S.run.loot.map((l) => ({ t: l.t, kept: l.kept ?? 1 })));
+    check('solo: bags appeared at the target, were carried and stowed in the van', fin.loot && fin.loot.bags.length >= 2 && fin.loot.bags.every((b) => b.s === 'van') && stats.stowed >= fin.loot.bags.length && runLoot.every((l) => l.kept === 1), JSON.stringify({ bags: fin.loot?.bags.map((b) => b.t + ':' + b.s), stats: { taken: stats.taken, stowed: stats.stowed }, runLoot }));
+    check('solo: the HUD counted the secured loot', /Loot secured: \d+ of \d+|Beute gesichert/.test(lootCount), lootCount);
+    check('solo: a target done shows a centred toast', toasts.size > 0, [...toasts].join(' | '));
+    console.log('      solo: dice countdown seen:', diceSeen || '(none)');
     check('solo: debrief -> full overlay again, HUD off', fin.overlay && !fin.hud);
     check('solo: no page errors', page.errors.length === 0, page.errors.slice(0, 3).join(' | '));
     check('solo: every text exists in English and German', (await page.evaluate(() => window.__nv.missingTranslations().filter((k) => /\bjb|jbl\./.test(k)))).length === 0);
@@ -232,7 +293,8 @@ try {
     // follow: the Hände walk away from the door lock once it is open -> dice
     let lockSeenBy = new Set(), lockWalked = false, safeOk = false, othersSaw = 0;
     let overlayInRun = 0, decLeak = 0, offerLeak = 0, watcherLine = '', decPopupBy = new Set(), offerPopupBy = new Set();
-    const objBy = {}, stats4 = {};
+    const objBy = {}, stats4 = { brain: { carry: 'one' }, gambler: { carry: 'none' }, hands: { carry: 'none' }, bait: { carry: 'none' } };
+    const countBy = {}, departBy = {};
     const end = await until(async () => {
       const hp = await pub(host);
       for (const p of pages) {
@@ -247,6 +309,8 @@ try {
             if (own && (own.phase === 'run' || (own.phase === 'offer' && own.mid)) && (await dbg(p)).overlay) overlayInRun++;
           }
           if (st.obj) (objBy[me] ||= new Set()).add(st.obj);
+          if (st.loot?.count) countBy[me] = st.loot.count;
+          if (st.loot?.departText) departBy[me] = st.loot.departText;
           const d = hp.run?.decision;
           if (st.popup === 'decision') {
             if (d && d.who === me) decPopupBy.add(me);
@@ -275,6 +339,10 @@ try {
       return p?.phase === 'debrief' ? p : false;
     }, 300000, 300);
     check('4p: the job runs on the stage until the debrief', !!end);
+    const L4 = await host.evaluate(() => ({ loot: window.__nv.plan.controller.debugMachine.S.run.loot.map((l) => ({ t: l.t, kept: l.kept ?? 1, v: l.v })), bags: window.__nv.job.debugState().loot }));
+    check('4p: the loot count showed on every page', ['brain', 'gambler', 'hands', 'bait'].every((r) => /Loot secured|Beute gesichert/.test(countBy[r] || '')), JSON.stringify(countBy));
+    check('4p: "Abfahrt" at the van: countdown on the other pages, the crew left, bags behind are lost', !!stats4.brain.departed && Object.keys(departBy).some((r) => r !== 'brain') && L4.bags.left && L4.bags.bags.some((b) => b.s === 'lost') && L4.bags.bags.some((b) => b.s === 'van'), JSON.stringify({ departBy, bags: L4.bags?.bags.map((b) => b.s) }));
+    check('4p: a bag left behind reduces that target\'s take', L4.loot.some((l) => l.kept < 1), JSON.stringify(L4.loot));
     const lines = await host.evaluate(() => window.__nv.plan.controller.debugMachine.S.run.beats.flatMap((b) => b.lines.map((l) => l.x?.k ?? l.roll?.label?.k)));
     check('4p: the door lock request reached only the Hände', lockSeenBy.size === 1 && lockSeenBy.has('hands') && othersSaw === 0, [...lockSeenBy].join(','));
     check('4p: walking away from the lock -> the dice decide', lockWalked && lines.includes('rl.noFumble') && !lines.includes('ln.skillNo'), lines.filter((k) => /skill|noFumble/.test(k)).join(','));

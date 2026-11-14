@@ -24,14 +24,18 @@ export interface PlanApi {
 export interface FirstPerson {
   skills: boolean;
   gate: PlanMachine['gate'];
+  /** is this seat's player at the task place? (validates who takes a task or answers a choice there) */
+  near?: PlanMachine['near'];
 }
 
+/** How long a player who dropped out keeps his seat (a reload or a network hiccup) before a bot plays it. */
+const AWAY_GRACE = 15000;
 const BOT_NAMES = ['Bot Kim', 'Bot Alex', 'Bot Sam'];
 /** Evening actions are handled here, not by the machine (they start or end a job). */
 const EVENING_ACTIONS = new Set(['next', 'revote', 'end']);
 /** An evening saved longer ago than this is a different evening. */
 const EVENING_MAX_AGE = 10 * 3600 * 1000;
-const ACTIONS = new Set(['next', 'revote', 'end', 'stake', 'confirm', 'scout', 'tool', 'ent', 'tgt', 'up', 'panel', 'post', 'choose', 'offer', 'accuse', 'skill']);
+const ACTIONS = new Set(['next', 'revote', 'end', 'stake', 'confirm', 'scout', 'tool', 'ent', 'tgt', 'up', 'panel', 'post', 'choose', 'offer', 'accuse', 'skill', 'take']);
 
 /** Replicated state at path 'plan': the machine's public view, or a waiting marker. */
 export type PlanPub = ReturnType<PlanMachine['pub']> & { job: number };
@@ -45,6 +49,8 @@ export class PlanController implements PlanApi {
   private privSent = new Map<string, string>();
   /** pid -> seat, to give a seat back when its player rejoins. */
   private seatOf = new Map<string, Role>();
+  /** pid -> timer: a player who left keeps his seat for AWAY_GRACE ms before a bot takes it. */
+  private away = new Map<string, number>();
   private saved = false;
   /** The evening so far (jobs finished), saved with the campaign; null before the first job or after "Abend beenden". */
   private evening: Evening | null = null;
@@ -77,11 +83,24 @@ export class PlanController implements PlanApi {
         const r = m.roleOf(left.pid);
         if (r) {
           this.seatOf.set(left.pid, r);
-          m.setSeat(r, null); // a bot plays on
+          // Grace period: a reload or a dropped connection is over in seconds, and a bot must not take his pending
+          // decision meanwhile. The seat stays his; if he is not back when it ends, a bot plays on.
+          const pid = left.pid;
+          const t = window.setTimeout(() => {
+            this.away.delete(pid);
+            const mm = this.m;
+            if (!mm || mm !== m || this.s?.players.has(pid) || mm.seats[r].pid !== pid) return;
+            mm.setSeat(r, null);
+            this.publish();
+          }, AWAY_GRACE);
+          window.clearTimeout(this.away.get(pid));
+          this.away.set(pid, t);
         }
         this.privSent.delete(left.pid);
       }
       if (joined) {
+        window.clearTimeout(this.away.get(joined.pid));
+        this.away.delete(joined.pid);
         const r = this.seatOf.get(joined.pid);
         if (r && !m.seats[r].pid) m.setSeat(r, joined.pid, joined.name);
         this.privSent.delete(joined.pid);
@@ -100,6 +119,8 @@ export class PlanController implements PlanApi {
     this.revoting = false;
     this.privSent.clear();
     this.seatOf.clear();
+    for (const t of this.away.values()) window.clearTimeout(t);
+    this.away.clear();
   }
 
   start() {
@@ -185,8 +206,12 @@ export class PlanController implements PlanApi {
     this.saved = false;
     this.privSent.clear();
     this.seatOf.clear();
+    for (const t of this.away.values()) window.clearTimeout(t);
+    this.away.clear();
+    for (const x of seats) if (x.pid) this.seatOf.set(x.pid, x.role); // a player who drops out and returns gets this seat back
     this.m = new PlanMachine({ seed, seats, times, skills: !!this.fp?.skills, evening: this.evening }, s.hostNow());
     this.m.gate = this.fp?.gate ?? null;
+    this.m.near = this.fp?.near ?? null;
     s.emit('sfx', { n: 'ui' });
     this.publish();
   }
@@ -238,10 +263,10 @@ export class PlanController implements PlanApi {
       const pid = m.seats[r].pid;
       if (!pid) continue;
       const pv: PrivateView & { job: number } = { ...m.priv(r), job: this.job };
-      const j = JSON.stringify(pv);
+      // the link epoch is part of the key: a player who came back on a new connection gets his view again
+      const j = s.linkEpoch(pid) + '|' + JSON.stringify(pv);
       if (this.privSent.get(pid) === j) continue;
-      this.privSent.set(pid, j);
-      s.sendTo(pid, 'plan.priv', pv);
+      if (s.sendTo(pid, 'plan.priv', pv)) this.privSent.set(pid, j); // not delivered (link down): try again on the next tick
     }
   }
 
@@ -299,7 +324,15 @@ export class PlanController implements PlanApi {
   /** Host: first-person options for jobs (null: back to the table). A running job keeps its skill setting, the gate follows at once. */
   setFirstPerson(fp: FirstPerson | null) {
     this.fp = fp;
-    if (this.m) this.m.gate = fp?.gate ?? null;
+    if (this.m) {
+      this.m.gate = fp?.gate ?? null;
+      this.m.near = fp?.near ?? null;
+    }
+  }
+
+  /** Host, first-person job: share of loot entry i whose bags reached the van (the machine validates and applies it). */
+  lootKept(i: number, f: number) {
+    this.m?.setLootKept(i, f);
   }
 
   /** Host: a guard of the first-person stage raised the alarm (reported by any crew member's client). */

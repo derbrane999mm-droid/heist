@@ -860,9 +860,11 @@ export function createVarga(deps: LevelDeps): Level {
     const D = 30;
     const front = (sx: number, sy: number, x: number, y: number, mat: THREE.Material = M.carpark) => b.box(mat, sx, sy, 0.3, x, y, Z + 0.15, N);
     // decks, interior, back wall
-    for (const y of [3, 6, 9, 12]) b.box(M.carparkIn, 90, 0.3, D, 0, y - 0.15, Z + D / 2, N);
+    // decks and ground slab start behind the 0.3 m spandrel bands: flush with the bands, their
+    // front and under faces z-fought along the whole facade (visible flicker from the street)
+    for (const y of [3, 6, 9, 12]) b.box(M.carparkIn, 90, 0.3, D - 0.3, 0, y - 0.15, Z + 0.3 + (D - 0.3) / 2, N);
     b.box(M.carparkIn, 90, 13, 0.4, 0, 6.5, Z + D, N);
-    b.box(M.carparkIn, 90, 0.2, D, 0, KERB - 0.1, Z + D / 2, N);
+    b.box(M.carparkIn, 90, 0.2, D - 0.3, 0, KERB - 0.1, Z + 0.3 + (D - 0.3) / 2, N);
     // spandrel bands: slab edge + parapet at every level, roof parapet
     for (const y of [3, 6, 9]) front(90, 1.35, 0, y + 0.375);
     front(90, 1.3, 0, 12.5);

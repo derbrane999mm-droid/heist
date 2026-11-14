@@ -44,6 +44,81 @@ async function openPlayer(env, { name, quality, width, height, extra }) {
   return page;
 }
 
+/**
+ * Z-fighting scan: every visible mesh's triangles in world space, grouped by plane (normal + offset, 3 mm bins);
+ * same-facing triangles of two different meshes whose boxes overlap by more than 4 cm² fight for the pixel.
+ */
+function zfightScan() {
+  const THREE_V = (x, y, z) => ({ x, y, z });
+  const groups = new Map();
+  const meshes = [];
+  window.__nv.engine.scene.updateMatrixWorld(true);
+  window.__nv.engine.scene.traverseVisible((o) => {
+    if (!o.isMesh || !o.geometry?.attributes?.position) return;
+    const m = Array.isArray(o.material) ? o.material[0] : o.material;
+    if (!m || m.visible === false || m.depthTest === false || m.depthWrite === false) return; // transparent decals use offsets
+    if (m.polygonOffset) return;
+    meshes.push(o);
+  });
+  const e = new Float32Array(16);
+  let tris = 0;
+  meshes.forEach((o, mi) => {
+    const g = o.geometry;
+    const pos = g.attributes.position;
+    const idx = g.index;
+    const n = idx ? idx.count : pos.count;
+    o.matrixWorld.toArray(e);
+    const P = (i) => {
+      const x = pos.getX(i), y = pos.getY(i), z = pos.getZ(i);
+      return THREE_V(e[0] * x + e[4] * y + e[8] * z + e[12], e[1] * x + e[5] * y + e[9] * z + e[13], e[2] * x + e[6] * y + e[10] * z + e[14]);
+    };
+    for (let t = 0; t + 2 < n; t += 3) {
+      const a = P(idx ? idx.getX(t) : t), b = P(idx ? idx.getX(t + 1) : t + 1), c = P(idx ? idx.getX(t + 2) : t + 2);
+      const ux = b.x - a.x, uy = b.y - a.y, uz = b.z - a.z, vx = c.x - a.x, vy = c.y - a.y, vz = c.z - a.z;
+      let nx = uy * vz - uz * vy, ny = uz * vx - ux * vz, nz = ux * vy - uy * vx;
+      const len = Math.hypot(nx, ny, nz);
+      if (len < 1e-5) continue; // area < tiny
+      nx /= len; ny /= len; nz /= len;
+      // only axis-aligned-ish planes (walls, floors, ceilings) - that is where the level stacks boxes
+      const ax = Math.abs(nx) > 0.999 ? 'x' : Math.abs(ny) > 0.999 ? 'y' : Math.abs(nz) > 0.999 ? 'z' : null;
+      if (!ax) continue;
+      const sgn = (ax === 'x' ? nx : ax === 'y' ? ny : nz) > 0 ? 1 : -1;
+      const d = ax === 'x' ? a.x : ax === 'y' ? a.y : a.z;
+      const bin = Math.round(d / 0.003);
+      const key = ax + sgn + ':' + bin;
+      const box = ax === 'x' ? [Math.min(a.z, b.z, c.z), Math.max(a.z, b.z, c.z), Math.min(a.y, b.y, c.y), Math.max(a.y, b.y, c.y)]
+        : ax === 'y' ? [Math.min(a.x, b.x, c.x), Math.max(a.x, b.x, c.x), Math.min(a.z, b.z, c.z), Math.max(a.z, b.z, c.z)]
+        : [Math.min(a.x, b.x, c.x), Math.max(a.x, b.x, c.x), Math.min(a.y, b.y, c.y), Math.max(a.y, b.y, c.y)];
+      let arr = groups.get(key);
+      if (!arr) groups.set(key, (arr = []));
+      arr.push([mi, d, ...box]);
+      tris++;
+    }
+  });
+  const hits = new Map();
+  for (const [key, arr] of groups) {
+    const [axs, binS] = key.split(':');
+    const bin = Number(binS);
+    const near = [arr, groups.get(axs + ':' + (bin + 1)) || []];
+    for (const other of near)
+      for (let i = 0; i < arr.length; i++)
+        for (let j = other === arr ? i + 1 : 0; j < other.length; j++) {
+          const A = arr[i], B = other[j];
+          if (A[0] === B[0]) continue;
+          const ox = Math.min(A[3], B[3]) - Math.max(A[2], B[2]);
+          const oy = Math.min(A[5], B[5]) - Math.max(A[4], B[4]);
+          if (ox <= 0.02 || oy <= 0.02 || ox * oy < 0.0004) continue;
+          const ma = meshes[A[0]], mb = meshes[B[0]];
+          const name = (m) => (m.name || '') + '#' + (Array.isArray(m.material) ? m.material[0] : m.material).uuid.slice(0, 4) + ':' + ((Array.isArray(m.material) ? m.material[0] : m.material).color?.getHexString?.() ?? '');
+          const k = [name(ma), name(mb)].sort().join(' vs ') + ' @' + axs + ' ' + A[1].toFixed(3);
+          const h = hits.get(k) ?? { k, area: 0, at: [((A[2] + A[3]) / 2).toFixed(2), ((A[4] + A[5]) / 2).toFixed(2)], gap: Math.abs(A[1] - B[1]).toFixed(4) };
+          h.area += ox * oy;
+          hits.set(k, h);
+        }
+  }
+  return { tris, meshes: meshes.length, hits: [...hits.values()].sort((a, b) => b.area - a.area).slice(0, 60) };
+}
+
 /** Per-frame recorder inside the page (rAF runs after the engine's own frame callback). */
 function installProbe() {
   const nv = window.__nv;
@@ -178,6 +253,39 @@ async function flickerAt(page, cmp, tag, spot) {
   return { spot: spot.name, meanMad: +(sum / 11).toFixed(3), worstMad: worst.mad, peak: worst.peak, maxChangedBlocks: maxChanged, box: worst.box };
 }
 
+/** During the run: stand near the guard (still) and film him walking: 24 shots, 80 ms apart. */
+async function guardWatch(page, cmp, tag) {
+  await sleep(1500);
+  const g = await page.evaluate(() => window.__nv.level.guards?.debugState()?.guards?.[0] ?? null);
+  if (!g) return null;
+  await page.evaluate((g) => {
+    const A = window.__nv.level.anchors;
+    // a waypoint 3-6 m from the guard, looking at him
+    let best = null;
+    for (let i = 0; A['guard.' + i]; i++) {
+      const w = A['guard.' + i];
+      const d = Math.hypot(w.x - g.x, w.z - g.z);
+      if (d > 3 && d < 7 && (!best || d < best.d)) best = { d, w };
+    }
+    const w = best ? best.w : { x: g.x + 3, z: g.z };
+    window.__nv.tp(w.x, (A['in.liefer']?.y ?? 0) + 0.02, w.z, Math.atan2(-(g.x - w.x), -(g.z - w.z)), -0.15);
+  }, g);
+  await sleep(600);
+  await page.evaluate(() => (window.__nv.player.frozen = true));
+  const shots = [];
+  for (let i = 0; i < 24; i++) {
+    shots.push(await page.screenshot({ scale: 'css' }));
+    await sleep(80);
+  }
+  await page.evaluate(() => (window.__nv.player.frozen = false));
+  const ds = [];
+  for (let i = 1; i < shots.length; i++) ds.push(await diffPngs(cmp, shots[i - 1], shots[i]));
+  fs.mkdirSync(`${DIR}/guard-${tag}`, { recursive: true });
+  shots.forEach((s, i) => fs.writeFileSync(`${DIR}/guard-${tag}/${String(i).padStart(2, '0')}.png`, s));
+  console.log('  guard watch (consecutive diffs):', ds.map((d) => d.mad).join(' '));
+  return ds;
+}
+
 /** A solo job: plan in the overlay, then walk to every objective. */
 async function drivePlan(page) {
   const p = await pub(page);
@@ -290,6 +398,12 @@ try {
     console.log(`\n=== ${quality}: preset ${boot.q}, dpr ${boot.dpr}, programs after boot ${boot.programs}, ${boot.gpu}`);
     const out = { quality, boot };
     const A = await page.evaluate(() => window.__nv.level.anchors);
+    if (args.includes('--zfight')) {
+      const z = await page.evaluate(zfightScan);
+      out.zfight = z;
+      console.log(`  z-fight scan: ${z.meshes} meshes, ${z.tris} axis-aligned triangles, ${z.hits.length} coplanar overlaps`);
+      for (const h of z.hits) console.log(`    ${h.area.toFixed(3)} m²  gap ${h.gap}  ${h.k}  near ${h.at.join(',')}`);
+    }
 
     // ---------------------------------------------------------------- free walk + idle, outside a job
     await page.evaluate(() => { window.__probe.frames = []; window.__probe.on = true; window.__probe.tag = 'walk'; });
@@ -325,8 +439,14 @@ try {
       await page.evaluate(() => window.__nv.interactions.debugUse('varga.plan'));
       const t0 = Date.now();
       let flashToggled = 0;
+      let watched = false;
+      const progs0 = await page.evaluate(() => window.__nv.engine.renderer.info.programs.map((p) => p.name + '|' + p.cacheKey.slice(0, 160)));
       const end = await until(async () => {
         const p = await drivePlan(page);
+        if (p?.phase === 'run' && !watched && DO_FLICKER) {
+          watched = true;
+          out.guardWatch = await guardWatch(page, cmp, quality);
+        }
         if (p?.phase === 'run') {
           await walk(page);
           // switch the flashlight now and then, like a player would
@@ -340,6 +460,10 @@ try {
       await page.evaluate(() => ['KeyW', 'ShiftLeft'].forEach((k) => window.__nv.input.debugSet(k, false)));
       await sleep(2000);
       const frames = await page.evaluate(() => { window.__probe.on = false; return window.__probe.frames; });
+      const progs1 = await page.evaluate(() => window.__nv.engine.renderer.info.programs.map((p) => p.name + '|' + p.cacheKey.slice(0, 160)));
+      out.newPrograms = progs1.filter((x) => !progs0.includes(x));
+      for (const x of out.newPrograms) console.log('  new program during job:', x);
+      frames.forEach((f, i) => f[7] && console.log(`  frame ${i} [${f[8]}]: ${f[7]} shader link(s), work ${f[10]} ms, dt ${f[0]}`));
       out.job = stats(frames);
       out.jobWork = stats(frames, 10);
       out.jobReached = end?.phase ?? String(!!end);
@@ -389,3 +513,4 @@ try {
   fs.writeFileSync(`${DIR}/probe.json`, JSON.stringify(summary, null, 1));
   await env.stop();
 }
+process.exit(0);

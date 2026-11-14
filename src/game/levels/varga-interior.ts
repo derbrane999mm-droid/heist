@@ -972,19 +972,24 @@ export function buildVargaInterior(b: Builder, deps: LevelDeps, opts: VargaInter
         onWall(f.casing, s.ax, fc, s.dir, (o.a0 + o.a1) / 2, o.top + 0.04, o.a1 - o.a0 + 0.16, 0.08, 0.025, off + 0.02);
       }
     }
-    // ceiling (the hall has the roof hatch)
-    const cx = (r.x0 + r.x1) / 2;
-    const cz = (r.z0 + r.z1) / 2;
+    // ceiling (the hall has the roof hatch). It ends inside the outer walls (0.15 m in): run out to
+    // the facade plane, its edge z-fought with the facade as a flickering band on every side.
+    const rx0 = r.x0 === OUT.x0 ? OUT.x0 + 0.15 : r.x0;
+    const rx1 = r.x1 === OUT.x1 ? OUT.x1 - 0.15 : r.x1;
+    const rz0 = r.z0 === OUT.z0 ? OUT.z0 + 0.15 : r.z0;
+    const rz1 = r.z1 === OUT.z1 ? OUT.z1 - 0.15 : r.z1;
+    const cx = (rx0 + rx1) / 2;
+    const cz = (rz0 + rz1) / 2;
     if (r === ROOMS.saal) {
       const hx0 = -10.5,
         hx1 = -8.8,
         hz0 = -2.0,
         hz1 = -0.3;
-      bx(f.ceil, hx0 - r.x0, 0.12, r.z1 - r.z0, (r.x0 + hx0) / 2, r.h + 0.06, cz, N);
-      bx(f.ceil, r.x1 - hx1, 0.12, r.z1 - r.z0, (hx1 + r.x1) / 2, r.h + 0.06, cz, N);
-      bx(f.ceil, hx1 - hx0, 0.12, hz0 - r.z0, (hx0 + hx1) / 2, r.h + 0.06, (r.z0 + hz0) / 2, N);
-      bx(f.ceil, hx1 - hx0, 0.12, r.z1 - hz1, (hx0 + hx1) / 2, r.h + 0.06, (hz1 + r.z1) / 2, N);
-    } else bx(f.ceil, r.x1 - r.x0, 0.12, r.z1 - r.z0, cx, r.h + 0.06, cz, N);
+      bx(f.ceil, hx0 - rx0, 0.12, rz1 - rz0, (rx0 + hx0) / 2, r.h + 0.06, cz, N);
+      bx(f.ceil, rx1 - hx1, 0.12, rz1 - rz0, (hx1 + rx1) / 2, r.h + 0.06, cz, N);
+      bx(f.ceil, hx1 - hx0, 0.12, hz0 - rz0, (hx0 + hx1) / 2, r.h + 0.06, (rz0 + hz0) / 2, N);
+      bx(f.ceil, hx1 - hx0, 0.12, rz1 - hz1, (hx0 + hx1) / 2, r.h + 0.06, (hz1 + rz1) / 2, N);
+    } else bx(f.ceil, rx1 - rx0, 0.12, rz1 - rz0, cx, r.h + 0.06, cz, N);
   }
 
   // windows: dark glass with a faint glow, deep reveal, bars or a blind

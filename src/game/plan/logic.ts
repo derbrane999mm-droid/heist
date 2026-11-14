@@ -219,6 +219,12 @@ export interface Decision {
   options: Opt[];
   push?: boolean;
   t?: number;
+  /**
+   * First-person job: "which way do we do this task" questions the world can answer. Instead of a pop-up the
+   * crew finds one prompt per option at the place (`at`: 'door' | 'safe'); whoever starts one there chooses
+   * it (and takes the task that follows). `role`: whose way it normally is (null: anyone inside).
+   */
+  world?: { at: string; opts: { id: string; key: 'E' | 'F'; role: Role | null; task: string }[] };
 }
 export interface OffersStep {
   kind: 'offers';
@@ -250,6 +256,8 @@ export interface SkillAnswer {
   noise: number;
   fumbles: number;
   gaveUp?: boolean;
+  /** set by the machine: the seat that actually played it (the role holder or a stand-in) */
+  by?: Role;
 }
 export type Step = Decision | OffersStep | SkillStep;
 
@@ -1019,26 +1027,31 @@ export function* runJob(S: Game): Generator<Step, any, any> {
   };
   // A roll that a human may play himself (first-person job). Skill checks off, a bot seat, or no result
   // (gave up, timeout): exactly the old roll, same random numbers. A result never touches S.rng.
+  // First-person job: the step is yielded for every seat (the machine gives it to the role holder, to a human
+  // stand-in inside, or rolls at once when no human is inside). `modRole`: whose secret-offer modifiers the
+  // dice roll uses (exactly the old roll); `diff`: the role holder's difficulty (a stand-in gets one step more).
   let skillSt: 'ok' | 'warned' | 'arrived' = 'ok';
-  const skillRoll = function* (role: Role, game: string, variant: string, at: string, p: number, label: Txt, diff?: 1 | 2 | 3): Generator<Step, boolean, any> {
+  const skillRoll = function* (role: Role, game: string, variant: string, at: string, p: number, label: Txt, diff?: 1 | 2 | 3, modRole: Role | null = role): Generator<Step, boolean, any> {
     skillSt = 'ok';
-    if (!S.skills || S.humans.indexOf(role) < 0) return roll(p, label, role);
-    const pp = rollP(p, role);
+    if (!S.skills) return roll(p, label, modRole);
+    const pp = rollP(p, modRole);
     const st: SkillStep = { kind: 'skill', role, game, variant, at, difficulty: diff ?? skillDifficulty(pp), seed: (S.runSeed * 31 + R.beats.length * 977 + R.skills * 131 + 7) >>> 0, tools: S.tools.slice(), p: pp, label };
     R.skills++;
-    const fx = skillEffect(yield st);
-    if (!fx) return roll(p, label, role);
-    const rm = modsFor('roll', role);
+    const ans = yield st;
+    const fx = skillEffect(ans);
+    if (!fx) return roll(p, label, modRole);
+    const by: Role = ans && ROLE_ORDER.indexOf(ans.by) >= 0 ? ans.by : role;
+    const rm = modsFor('roll', by);
     for (const m of rm) m.o.hits.rolls++;
-    beat.lines.push({ kind: fx.ok ? 'good' : 'warn', x: T(fx.ok ? 'ln.skillOk' : 'ln.skillNo', { who: N(role), s: fx.seconds }) });
-    if (rm.length && (R.unsure[role] || 0) < 2) {
-      R.unsure[role] = (R.unsure[role] || 0) + 1;
+    beat.lines.push({ kind: fx.ok ? 'good' : 'warn', x: T(fx.ok ? 'ln.skillOk' : 'ln.skillNo', { who: N(by), s: fx.seconds }) });
+    if (rm.length && (R.unsure[by] || 0) < 2) {
+      R.unsure[by] = (R.unsure[by] || 0) + 1;
       rm[0].o.traces = (rm[0].o.traces || 0) + 1;
-      tline(T('tr.unsure', { who: N(role) }));
+      tline(T('tr.unsure', { who: N(by) }));
     }
     if (fx.noise) R.noise += fx.noise;
     if (fx.min) {
-      line(T('ln.skillSlow', { who: N(role), n: fx.min }), 'warn');
+      line(T('ln.skillSlow', { who: N(by), n: fx.min }), 'warn');
       skillSt = spend(fx.min);
     }
     return fx.ok;
@@ -1370,7 +1383,8 @@ export function* runJob(S: Game): Generator<Step, any, any> {
     const opts = hIn
       ? [opt('pick', 'op.pick', 'op.pick.t', pF, 'pl.noFumble', [tmin(lockT), tg('quiet')], T('op.pick.d')), opt('crow', 'op.crow', 'op.crow.t', 100, 'pl.sure', [tmin(1), tg('loud')], T('op.crow.d'))]
       : [opt('pick', 'op.pickOther', 'op.pickOther.t', 50, 'pl.success', [tmin(6)], T('op.pickOther.d')), opt('crow', 'op.crow', 'op.crow.t', 100, 'pl.sure', [tmin(1), tg('loud')], T('op.crow.d'))];
-    const c = yield* decide({ title: T('dc.door'), who: hIn ? 'hands' : insideOk()[0], text: T('dc.door.t', { e: T('en.' + P.entrance + '.name') }), options: opts });
+    const world = { at: 'door', opts: [{ id: 'pick', key: 'E' as const, role: 'hands' as Role, task: 'lock' }, { id: 'crow', key: 'F' as const, role: null, task: 'crow' }] };
+    const c = yield* decide({ title: T('dc.door'), who: hIn ? 'hands' : insideOk()[0], text: T('dc.door.t', { e: T('en.' + P.entrance + '.name') }), options: opts, world });
     if (c === 'pick') {
       if (hIn) {
         spend(durA(3, 'hands'));
@@ -1381,7 +1395,8 @@ export function* runJob(S: Game): Generator<Step, any, any> {
         } else line(T('ln.open'), 'good');
       } else {
         spend(6);
-        if (!roll(50, T('rl.lockOpens'))) {
+        // the Hände are not inside: whoever is picks it (first person), else the old 50 % roll
+        if (!(yield* skillRoll('hands', 'lock', 'door', 'door', 50, T('rl.lockOpens'), skillDifficulty(rollP(100 - fumbleP(), 'hands')), null))) {
           spend(1);
           R.noise += 3;
           line(T('ln.lockHolds'), 'warn');
@@ -1504,6 +1519,7 @@ export function* runJob(S: Game): Generator<Step, any, any> {
             opt('quiet', 'op.quiet', 'op.quiet.t', rollP(pK, 'brain'), 'pl.firstTry', [tmin(quiet), tg('quiet')], T('op.quiet.d')),
             opt('drill', 'op.drill', 'op.drill.t', rollP(100 - fumbleP(), 'hands'), 'pl.noFumble', [tmin(drill), tg('loud')], T('op.drill.d')),
           ],
+          world: { at: 'safe', opts: [{ id: 'quiet', key: 'E', role: 'brain', task: 'safe' }, { id: 'drill', key: 'F', role: 'hands', task: 'drill' }] },
         });
       } else method = quiet ? 'quiet' : 'drill';
       if (method === 'quiet') {
@@ -1530,10 +1546,15 @@ export function* runJob(S: Game): Generator<Step, any, any> {
             const st2 = spend(2);
             if (st2 !== 'ok') return st2;
           }
-        } else if (!roll(60, T('rl.drillNoHands'))) {
-          line(T('ln.drillBreak'), 'warn');
-          const st2 = spend(3);
-          if (st2 !== 'ok') return st2;
+        } else {
+          // the Hände are not inside: whoever is drills (first person), else the old 60 % roll
+          const okN = yield* skillRoll('hands', 'safe', 'drill', 'safe', 60, T('rl.drillNoHands'), sTrue === 'zeit' ? 3 : skillDifficulty(rollP(100 - fumbleP(), 'hands')), null);
+          if (skillSt !== 'ok') return skillSt;
+          if (!okN) {
+            line(T('ln.drillBreak'), 'warn');
+            const st2 = spend(3);
+            if (st2 !== 'ok') return st2;
+          }
         }
         line(T('ln.drilled'), 'good');
         impact('safe', T('im.drilled', { s: sName, n: drillBase }));
@@ -2138,7 +2159,7 @@ export interface Times {
   /** first-person job: how long a beat waits for the inside crew to reach its place */
   gate: number;
 }
-export const TIMES: Times = { stake: 60000, brief: 90000, board: 180000, facts: 60000, offer: 30000, decide: 25000, accuse: 30000, beat: 2600, bot: 2200, skill: 90000, gate: 45000 };
+export const TIMES: Times = { stake: 60000, brief: 90000, board: 180000, facts: 60000, offer: 30000, decide: 25000, accuse: 30000, beat: 2600, bot: 2200, skill: 150000, gate: 90000 };
 
 export type Action =
   | { t: 'stake'; id: string }
@@ -2153,6 +2174,7 @@ export type Action =
   | { t: 'choose'; id: string }
   | { t: 'offer'; answer: string }
   | { t: 'accuse'; target: string }
+  | { t: 'take'; n: number }
   | ({ t: 'skill' } & SkillAnswer);
 
 /** A message for one seat only (the host forwards it to that player). */
@@ -2162,7 +2184,7 @@ export interface PrivateView {
   tip: null | { k: FactKey; v: string };
   accuse: null | { choice: string | null; deadline: number };
   /** A skill check that only I play (first-person job): the SkillRequest plus where and until when. */
-  skill: null | { n: number; game: string; variant: string; difficulty: 1 | 2 | 3; seed: number; tools: string[]; timeLimit: number; at: string; deadline: number };
+  skill: null | { n: number; game: string; variant: string; difficulty: 1 | 2 | 3; seed: number; tools: string[]; timeLimit: number; at: string; deadline: number; standIn: boolean; holder: Role };
   /** My own answers so far (only ever sent to me). */
   mine: { id: OfferId; when: 'pre' | 'mid'; state: string; target: Role | null; partner: Role | null }[];
 }
@@ -2184,6 +2206,15 @@ export interface MachineOpts {
 export interface BeatRef {
   title: Txt;
   target: TargetId | null;
+}
+
+/** Public task kind of a skill step (no hidden facts: the safe's true type stays in the private request). */
+export const taskOf = (game: string, variant: string) => (game === 'lock' ? 'lock' : game === 'safe' ? (variant === 'drill' ? 'drill' : 'safe') : game);
+
+/** First-person job: how much of a loot entry reached the van (bags carried / bags there). 1 without a stage. */
+export function cleanKept(f: unknown): number {
+  const v = Number(f);
+  return Number.isFinite(v) ? clamp(v, 0, 1) : 1;
 }
 
 export class PlanMachine {
@@ -2213,9 +2244,26 @@ export class PlanMachine {
    * First-person job (set by the host's job director): may beat `i` be shown now? False holds the job until
    * it returns true or `times.gate` ran out (scares never soft-lock). Null: no waiting (the planning table).
    */
-  gate: ((b: BeatRef, i: number) => boolean) | null = null;
+  gate: ((b: BeatRef, i: number) => boolean | number) | null = null;
   private gating = -1;
   private gateSince = 0;
+  /** how long the current gate may hold (ms): the gate function may ask for longer than times.gate (loot bags) */
+  private gateLimit = 0;
+  /**
+   * First-person job (host's job director): is the human in seat `role` standing at the task place `at`
+   * ('door' | 'safe')? Null: no check. Used to validate who takes an open task or answers a world choice.
+   */
+  near: ((role: Role, at: string) => boolean) | null = null;
+  /** the seat that plays the open skill step (holder or stand-in); null while it is open to everyone inside */
+  private taker: Role | null = null;
+  /** who started the task with a world choice: he also takes the skill step that follows */
+  private autoTake: Role | null = null;
+  /** a world choice timed out: the skill step that follows goes to the dice at once */
+  private diceNext = false;
+  /** the pending decision is answered at its place (prompts), not with a pop-up */
+  private worldOpen = false;
+  /** first-person job: share of each loot entry (by index) that reached the van; applied at the end of the run */
+  private kept = new Map<number, number>();
   /** The evening before this job, and (from the debrief on) including it. */
   evening0: Evening | null;
   evening: Evening | null;
@@ -2275,7 +2323,7 @@ export class PlanMachine {
       case 'plan':
         return 'brain';
       case 'run':
-        return this.pending && this.pending.kind === 'decide' && this.pendingOpen ? this.pending.who : null;
+        return this.pending && this.pending.kind === 'decide' && this.pendingOpen && !this.worldOpen ? this.pending.who : null;
       default:
         return null;
     }
@@ -2403,13 +2451,28 @@ export class PlanMachine {
       }
       case 'run': {
         const d = this.pending;
+        if (a.t === 'choose' && d && d.kind === 'decide' && this.pendingOpen && this.worldOpen && d.world) {
+          // answered at the place: whoever may start that way and stands there
+          const w = d.world.opts.find((o) => o.id === a.id);
+          if (!w || !d.options.some((o) => o.id === a.id) || this.eligible(w.role).indexOf(role) < 0) return false;
+          if (this.near && !this.near(role, d.world.at)) return false;
+          this.autoTake = role;
+          this.resolveDecision(String(a.id));
+          return true;
+        }
         if (a.t === 'choose' && d && d.kind === 'decide' && this.pendingOpen && d.who === role) {
           if (!d.options.some((o) => o.id === a.id)) return false;
           this.resolveDecision(String(a.id));
           return true;
         }
-        if (a.t === 'skill' && d && d.kind === 'skill' && this.pendingOpen && d.role === role) {
-          this.advance(a);
+        if (a.t === 'take' && d && d.kind === 'skill' && this.pendingOpen && !this.taker && Number(a.n) === this.skillN) {
+          if (this.insideHumans().indexOf(role) < 0) return false;
+          if (this.near && !this.near(role, d.at)) return false;
+          this.taker = role;
+          return true;
+        }
+        if (a.t === 'skill' && d && d.kind === 'skill' && this.pendingOpen && this.taker === role) {
+          this.advance({ ok: a.ok, seconds: a.seconds, noise: a.noise, fumbles: a.fumbles, gaveUp: a.gaveUp, by: role });
           return true;
         }
         if (a.t === 'offer' && d && d.kind === 'offers' && this.phase === 'run') return false;
@@ -2538,6 +2601,8 @@ export class PlanMachine {
   private advance(value: any) {
     const x = this.gen!.next(value);
     this.pendingOpen = false;
+    this.worldOpen = false;
+    this.taker = null;
     if (x.done) {
       this.pending = null;
     } else {
@@ -2554,17 +2619,31 @@ export class PlanMachine {
     const p = this.pending;
     if (!p || this.pendingOpen) return;
     this.pendingOpen = true;
+    this.worldOpen = false;
+    const auto = this.autoTake,
+      dice = this.diceNext;
+    this.autoTake = null;
+    this.diceNext = false;
     if (p.kind === 'skill') {
-      if (!this.isHuman(p.role)) {
-        // a bot (or a player who left) cannot play it: the dice decide at once
+      // the role holder if he is a human inside; else any human inside may step in (the first at the place
+      // takes it); nobody inside, or a world choice that ran out: the dice decide at once
+      const cands = this.eligible(p.role);
+      if (!cands.length || dice) {
         this.advance(null);
         return;
       }
+      this.taker = cands.length === 1 && cands[0] === p.role ? p.role : auto && cands.indexOf(auto) >= 0 ? auto : null;
       this.skillN++;
       this.deadline = this.now + this.times.skill;
     } else if (p.kind === 'decide') {
-      this.deadline = this.now + this.times.decide;
-      this.scheduleBot();
+      if (this.S.skills && p.world && this.insideHumans().length) {
+        // first person: the crew answers it at the place (E / F), no pop-up; long timer like a task
+        this.worldOpen = true;
+        this.deadline = this.now + this.times.skill;
+      } else {
+        this.deadline = this.now + this.times.decide;
+        this.scheduleBot();
+      }
     } else {
       // secret offers in the middle: a sub-phase of the job
       this.offerWhen = 'mid';
@@ -2576,7 +2655,43 @@ export class PlanMachine {
   }
 
   private finishRun() {
+    // first person: loot left behind is lost (each entry scaled by the share of its bags that reached the van)
+    const R = this.S.run;
+    if (R && this.kept.size) {
+      R.loot.forEach((L: any, i: number) => {
+        const f = this.kept.get(i);
+        if (f !== undefined && f < 1) {
+          L.kept = f;
+          L.v *= f;
+        }
+      });
+      settle(this.S);
+    }
     this.enter('accuse');
+  }
+
+  /** Humans inside and free (they can step in for a task). */
+  private insideHumans(): Role[] {
+    const R = this.S.run;
+    return ROLE_ORDER.filter((r) => this.isHuman(r) && this.S.plan.posts[r] === 'inside' && (!R || R.status[r] !== 'caught'));
+  }
+
+  /** Who may do a task that is normally `role`'s: he alone if he is a human inside, else every human inside. */
+  private eligible(role: Role | null): Role[] {
+    const ins = this.insideHumans();
+    return role && ins.indexOf(role) >= 0 ? [role] : ins;
+  }
+
+  /**
+   * First-person job (host only, validated): the share of loot entry `i` (order of S.run.loot) whose bags
+   * reached the van. Clamped to 0..1; applied when the run ends. Without a stage nobody calls it: factor 1.
+   */
+  setLootKept(i: number, f: number): boolean {
+    const R = this.S.run;
+    const k = Math.floor(Number(i));
+    if (!R || !this.S.skills || !(k >= 0 && k < R.loot.length) || this.phase === 'accuse' || this.phase === 'debrief') return false;
+    this.kept.set(k, cleanKept(f));
+    return true;
   }
 
   private finishAccuse() {
@@ -2648,13 +2763,16 @@ export class PlanMachine {
         if (this.shown < beats) {
           if (now >= this.nextBeatAt) {
             const b = S.run.beats[this.shown];
-            if (this.gate && !this.gate({ title: b.title, target: b.target ?? null }, this.shown)) {
-              if (this.gating !== this.shown) {
+            const g = this.gate ? this.gate({ title: b.title, target: b.target ?? null }, this.shown) : true;
+            if (g !== true) {
+              const limit = typeof g === 'number' ? Math.max(0, g) : this.times.gate;
+              if (this.gating !== this.shown || this.gateLimit !== limit) {
+                if (this.gating !== this.shown) this.gateSince = now;
                 this.gating = this.shown;
-                this.gateSince = now;
+                this.gateLimit = limit;
                 this.touch();
               }
-              if (now < this.gateSince + this.times.gate) return;
+              if (now < this.gateSince + limit) return;
             }
             if (this.gating >= 0) this.gating = -1;
             this.shown++;
@@ -2673,11 +2791,17 @@ export class PlanMachine {
           this.openPending();
           return;
         }
-        if (p.kind === 'decide') {
+        if (p.kind === 'decide' && this.worldOpen) {
+          // nobody started it at the place in time (or nobody is left inside): the careful way, and the dice
+          if (timeUp || !this.insideHumans().length) {
+            this.diceNext = true;
+            this.resolveDecision(carefulChoice(S, p));
+          }
+        } else if (p.kind === 'decide') {
           if (timeUp || (!this.isHuman(p.who) && botTime)) this.resolveDecision(carefulChoice(S, p));
         } else if (p.kind === 'skill') {
-          // no answer in time, or the player left: the dice decide
-          if (timeUp || !this.isHuman(p.role)) this.advance(null);
+          // no answer in time, the player left, or nobody is left inside to take it: the dice decide
+          if (timeUp || (this.taker ? !this.isHuman(this.taker) : !this.eligible(p.role).length)) this.advance(null);
         }
         return;
       }
@@ -2721,7 +2845,9 @@ export class PlanMachine {
       overview: pre ? overview(S, this.phase === 'shop' ? this.board.tools : S.tools, this.phase === 'plan') : null,
     };
     if (R) {
-      const d = this.pending && this.pending.kind === 'decide' && this.pendingOpen ? this.pending : null;
+      const d = this.pending && this.pending.kind === 'decide' && this.pendingOpen && !this.worldOpen ? this.pending : null;
+      const wd = this.pending && this.pending.kind === 'decide' && this.pendingOpen && this.worldOpen && this.pending.world ? this.pending : null;
+      const sk = this.pending && this.pending.kind === 'skill' && this.pendingOpen ? this.pending : null;
       v.run = {
         t: R.t,
         noise: R.noise,
@@ -2744,9 +2870,24 @@ export class PlanMachine {
           : null,
         entrance: S.plan.entrance,
         // first-person job: who is at the lock / safe right now (no request details, no hidden facts)
-        skill: this.pending && this.pending.kind === 'skill' && this.pendingOpen ? { who: this.pending.role, game: this.pending.game, at: this.pending.at } : null,
+        // who: the seat playing it (null while it is open to everyone inside); holder: whose task it normally is
+        skill: sk
+          ? { who: this.taker, holder: sk.role, game: sk.game, kind: taskOf(sk.game, sk.variant), at: sk.at, n: this.skillN, open: !this.taker, standIn: !!this.taker && this.taker !== sk.role, until: this.deadline }
+          : null,
+        // first-person job: a "which way" question answered at the place; each option: its key, its task, who may start it (null: anyone inside)
+        choice: wd
+          ? {
+              at: wd.world!.at,
+              title: wd.title,
+              until: this.deadline,
+              opts: wd.world!.opts.filter((o) => wd.options.some((x) => x.id === o.id)).map((o) => {
+                const el = this.eligible(o.role);
+                return { id: o.id, key: o.key, task: o.task, role: o.role, only: o.role && el.length === 1 && el[0] === o.role ? o.role : null };
+              }),
+            }
+          : null,
         // first-person job: the next beat waits for the inside crew to reach its place
-        waitAt: this.gating >= 0 && this.gating < R.beats.length ? { i: this.gating, title: R.beats[this.gating].title, target: R.beats[this.gating].target ?? null, until: this.gateSince + this.times.gate } : null,
+        waitAt: this.gating >= 0 && this.gating < R.beats.length ? { i: this.gating, title: R.beats[this.gating].title, target: R.beats[this.gating].target ?? null, until: this.gateSince + (this.gateLimit || this.times.gate) } : null,
       };
     }
     if (this.phase === 'accuse' || this.phase === 'debrief') v.traces = S.result.traces.slice();
@@ -2806,8 +2947,10 @@ export class PlanMachine {
 
   private skillOf(role: Role): PrivateView['skill'] {
     const p = this.pending;
-    if (this.phase !== 'run' || !p || p.kind !== 'skill' || !this.pendingOpen || p.role !== role) return null;
-    return { n: this.skillN, game: p.game, variant: p.variant, difficulty: p.difficulty, seed: p.seed, tools: p.tools.slice(), timeLimit: Math.round(this.times.skill / 1000), at: p.at, deadline: this.deadline };
+    if (this.phase !== 'run' || !p || p.kind !== 'skill' || !this.pendingOpen || this.taker !== role) return null;
+    // a stand-in does the role holder's job one step harder
+    const difficulty = (role === p.role ? p.difficulty : Math.min(3, p.difficulty + 1)) as 1 | 2 | 3;
+    return { n: this.skillN, game: p.game, variant: p.variant, difficulty, seed: p.seed, tools: p.tools.slice(), timeLimit: Math.round(this.times.skill / 1000), at: p.at, deadline: this.deadline, standIn: role !== p.role, holder: p.role };
   }
 
   /** Compact result for the campaign save. */

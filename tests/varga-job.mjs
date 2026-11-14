@@ -92,12 +92,42 @@ async function drive(page, me, o = {}) {
         break;
       }
       const st = await dbg(page);
+      // loot: carry every bag to the van (real hold E when o.holdE, else the test hook)
+      if (!hold && st.loot && !st.game && !st.skill && p.plan.posts[me] === 'inside' && o.carry !== 'none') {
+        const myPid = await page.evaluate(() => window.__nv.session.pid);
+        const L = st.loot;
+        const mine = L.bags.find((b) => b.s === 'carry' && b.by === myPid);
+        const van = await page.evaluate(() => window.__nv.job.debugAnchor('van'));
+        const holdE = async () => {
+          await page.evaluate(() => window.__nv.input.debugSet('KeyE', true));
+          await sleep(1400);
+          await page.evaluate(() => window.__nv.input.debugSet('KeyE', false));
+        };
+        if (mine && van) {
+          await page.evaluate((a) => window.__nv.tp(a.x, a.y + 0.03, a.z + 0.3, a.yaw ?? 0), van);
+          await sleep(300);
+          if (o.holdE) await holdE();
+          else await page.evaluate(() => window.__nv.job.loot.debugAct('stow'));
+          await sleep(300);
+          break;
+        }
+        const k = L.bags.findIndex((b) => b.s === 'lie');
+        if (k >= 0 && !L.left) {
+          const b = L.bags[k];
+          await page.evaluate((b) => window.__nv.tp(b.x + 0.35, b.y + 0.03, b.z), b);
+          await sleep(300);
+          if (o.holdE) await holdE();
+          else await page.evaluate((k) => window.__nv.job.loot.debugAct('take', k), k);
+          await sleep(300);
+          break;
+        }
+      }
       if (!hold && st.at) {
         const far = await page.evaluate((a) => Math.hypot(window.__nv.player.position.x - a.x, window.__nv.player.position.z - a.z) > 1.0, st.at);
         if (far) await page.evaluate((a) => window.__nv.tp(a.x, a.y + 0.03, a.z + 0.3, a.yaw ?? 0), st.at);
       }
       if (finishSkill && st.game) await page.evaluate((id) => window.__nv.level.games[id].debugFinish(true), st.game);
-      else if (finishSkill && st.skill && !st.game) {
+      else if (finishSkill && (st.skill || st.openTask) && !st.game) {
         // the HUD may ask for E at the anchor before the game opens
         await page.evaluate(() => window.__nv.input.debugSet('KeyE', true));
         await sleep(120);
@@ -112,7 +142,7 @@ async function drive(page, me, o = {}) {
 const env = await startServers({ port: 5571, sigPort: 9571 });
 try {
   // ================================================================ (a) solo
-  const solo = async ({ entrance, tools, lang = 'en', shots = false, tag }) => {
+  const solo = async ({ entrance, tools, lang = 'en', shots = false, tag, holdE = false }) => {
     const page = await openPlayer(env, { ...SIZE, name: 'Mert', quality: shots ? 'medium' : 'low', lang, renderSkip: shots ? 0 : 20, extra: '&level=varga' });
     await page.evaluate(([t, s]) => { window.__nvPlanTimes = t; window.__nvPlanSeed = s; }, [TIMES, SEED]);
     await page.evaluate(() => window.__nv.start(null));
@@ -142,11 +172,14 @@ try {
     check(`${tag}: hold R puts me at the objective`, !!d1.at && Math.hypot(r1.x - d1.at.x, r1.z - d1.at.z) < 1.5, JSON.stringify({ r1, at: d1.at, obj: d1.objective }));
     check(`${tag}: the HUD names the hold-R key`, await page.evaluate(() => /R/.test(document.querySelector('.jb-rescue')?.textContent ?? '') && !document.querySelector('.jb-rescue').classList.contains('hidden')));
     const objectives = new Set();
+    let lockStandIn = false, lootCount = '';
     let skillSeen = null, skillDone = false, doorSeen = false, vaultSeen = false, hatchSeen = false, inShot = false, hudShot = false, lagerShot = false, guardShot = false, safeShot = false, inside = false;
     const end = await until(async () => {
       const st = await dbg(page);
       if (st.objective) objectives.add(st.objective);
-      if (st.skill && !skillSeen) skillSeen = st.skill;
+      if (!skillSeen) skillSeen = (st.skillLog || []).find((x) => x.game === 'safe') ?? null;
+      if ((st.skillLog || []).some((x) => x.game === 'lock' && x.standIn)) lockStandIn = true;
+      if (st.loot?.count) lootCount = st.loot.count;
       const pr = await props(page);
       doorSeen ||= pr[entrance];
       vaultSeen ||= pr.vault;
@@ -190,7 +223,7 @@ try {
         safeShot = true;
         await shot(page, '06-safe-game');
       }
-      await drive(page, 'brain', { hold: st.objective === 'safe' && !skillSeen, entrance, tools });
+      await drive(page, 'brain', { entrance, tools, holdE });
       if ((await dbg(page)).lastResult) skillDone = true;
       return p?.phase === 'debrief' ? p : false;
     }, 300000, 300);
@@ -200,6 +233,9 @@ try {
     check(`${tag}: objectives follow the beats`, [entKey, 'van'].every((k) => objectives.has(k)), [...objectives].join(','));
     check(`${tag}: the safe request matches the true safe and was played`, !!skillSeen && skillSeen.game === 'safe' && (skillSeen.variant === facts || skillSeen.variant === 'drill') && skillDone, JSON.stringify({ skillSeen, facts }));
     check(`${tag}: the entrance opened for this client`, entrance === 'dach' ? hatchSeen : doorSeen);
+    if (entrance !== 'dach') check(`${tag}: the solo player picked the lock himself (stand-in for the bot Hände)`, lockStandIn);
+    const fin = await dbg(page);
+    check(`${tag}: bags appeared, were carried and stowed${holdE ? ' (real hold E)' : ''}; the count showed`, fin.loot && fin.loot.bags.length >= 2 && fin.loot.bags.every((b) => b.s === 'van') && /Loot secured|Beute gesichert/.test(lootCount), JSON.stringify({ bags: fin.loot?.bags.map((b) => b.t + ':' + b.s), lootCount }));
     check(`${tag}: the vault door opened`, vaultSeen);
     check(`${tag}: the crew got inside the building`, inside);
     if (shots) {
@@ -222,9 +258,142 @@ try {
     await page.context().close();
   };
   if (want('solo')) {
-    await solo({ entrance: 'liefer', tools: ['decoder', 'stoer', 'bohrer'], shots: true, tag: 'solo liefer' });
+    await solo({ entrance: 'liefer', tools: ['decoder', 'stoer', 'bohrer'], shots: true, tag: 'solo liefer', holdE: true });
     await solo({ entrance: 'vorder', tools: ['decoder', 'stoer', 'bohrer'], lang: 'de', tag: 'solo vorder' });
     await solo({ entrance: 'dach', tools: ['seil', 'decoder', 'stoer'], tag: 'solo dach' });
+  }
+
+  // ================================================================ (f) what a first-time solo player sees (screenshots into test-out/feel)
+  if (want('feel')) {
+    const FEEL = `${OUT}/feel`;
+    fs.mkdirSync(FEEL, { recursive: true });
+    const fshot = async (page, name) => {
+      await sleep(900);
+      await page.screenshot({ path: `${FEEL}/${name}.png` });
+      console.log('      shot', `feel/${name}`);
+    };
+    const pressKey = async (page, code, ms = 150) => {
+      await page.evaluate((c) => window.__nv.input.debugSet(c, true), code);
+      await page.keyboard.down(code === 'KeyE' ? 'e' : code === 'KeyF' ? 'f' : code);
+      await sleep(ms);
+      await page.keyboard.up(code === 'KeyE' ? 'e' : code === 'KeyF' ? 'f' : code);
+      await page.evaluate((c) => window.__nv.input.debugSet(c, false), code);
+    };
+    const T = { ...TIMES, skill: 32000, gate: 15000, loot: 60000 };
+    const feel = async ({ entrance, posts, tools, tag, want: wantShots }) => {
+      const page = await openPlayer(env, { ...SIZE, name: 'Mert', quality: 'medium', lang: 'de', renderSkip: 0, extra: '&level=varga' });
+      await page.evaluate(([t, s]) => { window.__nvPlanTimes = t; window.__nvPlanSeed = s; }, [T, SEED]);
+      await page.evaluate(() => window.__nv.start(null));
+      await until(() => page.evaluate(() => !!window.__nv.player), 150000);
+      await planAtVan(page);
+      const P0 = { ...POSTS, ...posts };
+      // the plan with these posts
+      const run = await until(async () => {
+        const p = await pub(page);
+        if (p?.phase === 'plan') {
+          for (const [r, x] of Object.entries(P0)) if (p.plan.posts[r] !== x) await act(page, { t: 'post', role: r, post: x });
+          if (Object.entries(P0).some(([r, x]) => p.plan.posts[r] !== x)) return false;
+        }
+        if (p?.phase !== 'plan') await drive(page, 'brain', { hold: true, entrance, tools });
+        else {
+          if (p.plan.entrance !== entrance) await act(page, { t: 'ent', id: entrance });
+          else if (!p.plan.targets.includes('tresor')) await act(page, { t: 'tgt', id: 'tresor' });
+          else await act(page, { t: 'confirm' });
+        }
+        return p?.phase === 'run' ? p : false;
+      }, 150000, 300);
+      check(`feel ${tag}: the job reaches the run`, !!run);
+      await page.keyboard.press('ShiftLeft'); // the intro card
+      const got = new Set();
+      const end = await until(async () => {
+        const p = await pub(page);
+        if (!p) return false;
+        if (p.phase === 'debrief') return p;
+        if (p.phase !== 'run') { await drive(page, 'brain', { entrance, tools }); return false; }
+        const st = await dbg(page);
+        const R = p.run;
+        // the decision pop-up (rewritten texts)
+        if (wantShots.includes('decision') && st.popup === 'decision' && !got.has('decision')) {
+          got.add('decision');
+          await fshot(page, 'decision-popup');
+          console.log('      decision:', st.popText.slice(0, 200));
+        }
+        // the door: an open task / choice; wait for the dice countdown, then pick it with a real E
+        if (R.choice?.at === 'door' || (R.skill?.open && R.skill.at === 'door')) {
+          const a = st.at;
+          if (a) await page.evaluate((a) => window.__nv.tp(a.x, a.y + 0.03, a.z + 0.25, a.yaw ?? 0, 0.02), a);
+          await sleep(500);
+          const s2 = await dbg(page);
+          if (wantShots.includes('door') && !got.has('door') && s2.prompt) {
+            got.add('door');
+            await fshot(page, 'door-open-task');
+            console.log('      door:', s2.obj, '|', s2.sub, '|', s2.promptText);
+          }
+          if (wantShots.includes('dice') && !got.has('dice')) {
+            const d = await until(async () => { const x = await dbg(page); return x.dice ? x : false; }, 40000, 300);
+            got.add('dice');
+            await fshot(page, 'dice-countdown');
+            console.log('      dice:', d && d.dice);
+          }
+          await pressKey(page, 'KeyE');
+          await sleep(600);
+          const g = (await dbg(page)).game;
+          if (g) await page.evaluate((id) => window.__nv.level.games[id].debugFinish(true), g);
+          return false;
+        }
+        if (R.choice?.at === 'safe') {
+          const a = st.at;
+          if (a) await page.evaluate((a) => window.__nv.tp(a.x, a.y + 0.03, a.z + 0.2, a.yaw ?? 0, -0.05), a);
+          await sleep(500);
+          const s2 = await dbg(page);
+          if (wantShots.includes('safe') && !got.has('safe') && s2.prompt) {
+            got.add('safe');
+            await fshot(page, 'safe-both-prompts');
+            console.log('      safe:', s2.obj, '|', s2.promptText);
+            check(`feel ${tag}: the safe shows both ways as prompts, no pop-up`, /E/.test(s2.promptText) && /F/.test(s2.promptText) && !s2.popup, s2.promptText);
+          }
+          await pressKey(page, 'KeyE');
+          await sleep(600);
+          const g = (await dbg(page)).game;
+          if (g) await page.evaluate((id) => window.__nv.level.games[id].debugFinish(true), g);
+          return false;
+        }
+        const L = st.loot;
+        if (L && L.bags.some((b) => b.s === 'lie') && wantShots.includes('bags') && !got.has('bags')) {
+          got.add('bags');
+          const b = L.bags.find((x) => x.s === 'lie');
+          // stand back and look at them
+          await page.evaluate((b) => window.__nv.tp(b.x + 1.6, b.y + 0.03, b.z + 1.2, Math.atan2(1.6, 1.2), -0.45), b);
+          await fshot(page, 'bags-at-safe');
+        }
+        const mine = L?.bags.find((b) => b.s === 'carry' && b.by === st.pid);
+        if (mine && wantShots.includes('carry') && !got.has('carry')) {
+          got.add('carry');
+          // walking out with it: in the yard, the van ahead
+          const g = await page.evaluate(() => window.__nv.job.debugAnchor('gate'));
+          await page.evaluate((a) => window.__nv.tp(a.x - 0.3, a.y + 0.05, a.z - 1.2, Math.PI - 0.1, -0.1), g);
+          await fshot(page, 'carrying');
+        }
+        await drive(page, 'brain', { entrance, tools, holdE: true });
+        const after = await dbg(page);
+        if (wantShots.includes('van') && !got.has('van') && after.loot?.bags.some((b) => b.s === 'van')) {
+          got.add('van');
+          const van = await page.evaluate(() => window.__nv.job.debugAnchor('van'));
+          await page.evaluate((a) => window.__nv.tp(a.x + 0.4, a.y + 0.03, a.z + 2.2, (a.yaw ?? 0), -0.05), van);
+          await fshot(page, 'van-loot-secured');
+          console.log('      van:', (await dbg(page)).loot?.count);
+        }
+        return false;
+      }, 400000, 300);
+      check(`feel ${tag}: the job reaches the debrief`, !!end);
+      const missing = wantShots.filter((k) => !got.has(k));
+      check(`feel ${tag}: all screenshots taken`, missing.length === 0, missing.join(','));
+      check(`feel ${tag}: no page errors`, page.errors.length === 0, page.errors.slice(0, 3).join(' | '));
+      check(`feel ${tag}: every text exists in English and German`, (await page.evaluate(() => window.__nv.missingTranslations().filter((k) => /^(jb|varga|lk|sf|gd)\./.test(k)))).length === 0);
+      await page.context().close();
+    };
+    await feel({ entrance: 'liefer', posts: {}, tools: ['decoder', 'stoer', 'bohrer'], tag: 'liefer', want: ['door', 'dice', 'safe', 'bags', 'carry', 'van'] });
+    await feel({ entrance: 'dach', posts: { hands: 'lookout', bait: 'driver' }, tools: ['seil', 'decoder', 'stoer'], tag: 'dach', want: ['decision'] });
   }
 
   // ================================================================ (b) four players

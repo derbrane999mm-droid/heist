@@ -19,6 +19,7 @@ import type { BeatRef } from '../plan/logic';
 import { registerStrings, t } from '../../core/i18n';
 import type { JobStage } from './types';
 import { JobHud } from './hud';
+import { JobLoot } from './loot';
 import type { Input } from '../../core/input';
 
 export type { JobStage, GuardSystemLike, JobPhaseEvent } from './types';
@@ -140,6 +141,24 @@ export function beatAnchor(b: { title: { k: string }; target?: string | null }, 
 }
 
 const flatDist = (a: { x: number; z: number }, b: { x: number; z: number }) => Math.hypot(a.x - b.x, a.z - b.z);
+/** How long the getaway waits for bags that are not in the van yet (ms; tests: `__nvPlanTimes.loot`). */
+const lootWait = () => Number((window as any).__nvPlanTimes?.loot) || 120000;
+/** Host check "at the task place": a little more generous than the client's prompt (poses lag a bit). */
+const TAKE_SLACK = 2.5;
+
+/** A task open to everyone inside (bot seat's job) or a "which way" choice answered at its place. */
+export interface OpenTask {
+  kind: 'take' | 'choice';
+  /** anchor key of the place */
+  key: string | null;
+  anchor: Anchor | null;
+  /** whose job it normally is */
+  holder: string | null;
+  /** what I may press here: key, task kind ('lock' | 'safe' | 'drill' | 'crow'), choice id */
+  opts: { key: 'E' | 'F'; task: string; id: string }[];
+  /** for 'take': the request number; for 'choice': '' */
+  ref: string;
+}
 let busyNow = false;
 /** A skill game, a decision pop-up or the plan overlay of this player is open (src/game/job/roles.ts ignores its keys then). */
 export const jobBusy = () => busyNow;
@@ -159,6 +178,8 @@ export class JobDirector {
   private priv: any = null;
   /** everything the player sees during the run (hud.ts) */
   private readonly ui: JobHud;
+  /** bags to carry to the van (loot.ts) */
+  readonly loot: JobLoot;
   private runJob: unknown = null;
   private doorOpen = '';
   private open: { n: number; game: SkillGame; anchor: Anchor | null } | null = null;
@@ -175,11 +196,26 @@ export class JobDirector {
   private climbedOut: unknown = null;
   private rDown = false;
   private rHeld = 0;
+  /** I started an open task or a world choice at its place: open my game as soon as the request arrives */
+  private autoOpenUntil = 0;
+  /** the open task / choice I already answered (key), so one key press sends once */
+  private tookKey = '';
+  /** this frame: an open task or choice I may start here (prompts "E ..." / "F ...") */
+  private openNow: OpenTask | null = null;
   /** for tests: the last skill result this client sent */
   lastResult: (SkillResult & { n: number }) | null = null;
+  /** for tests: every skill request this client received (job, n, game, variant, standIn, holder) */
+  skillLog: { job: unknown; n: number; game: string; variant: string; standIn: boolean; holder: string | null }[] = [];
 
   constructor(private d: DirectorDeps) {
     this.ui = new JobHud({ root: d.root, camera: d.camera, act: (a) => this.s?.intent('plan.act', a) });
+    this.loot = new JobLoot({
+      camera: d.camera,
+      root: d.root,
+      player: d.player,
+      input: () => (this.d.view as unknown as { input?: Input }).input,
+      kept: (i, f) => this.d.plan.lootKept(i, f),
+    });
     // hold R: back to the objective (own listener: works whatever the level binds)
     window.addEventListener('keydown', (e) => {
       if (e.code === 'KeyR' && !e.repeat) this.rDown = true;
@@ -193,12 +229,14 @@ export class JobDirector {
   /** PlanApi.registerStage: a level hands over its stage. Returns the unregister function. */
   register(stage: JobStage): () => void {
     this.stage = stage;
+    this.loot.setAnchors(stage.anchors);
     this.applyHost();
     this.bindGuards();
     return () => {
       if (this.stage !== stage) return;
       this.endRun();
       this.stage = null;
+      this.loot.setAnchors(null);
       this.applyHost();
       this.hide();
     };
@@ -218,6 +256,7 @@ export class JobDirector {
       }),
     );
     if (s.isHost) s.handle('job.alert', (pid) => this.d.plan.guardAlert(pid));
+    this.loot.attach(s);
     this.d.view.hudMode = (p) => !!this.stage && this.inRun(p);
     // with a stage the planning overlay stays closed for the whole run: decisions and offers are the HUD's glass pop-up
     this.d.view.needsMe = () => false;
@@ -230,6 +269,7 @@ export class JobDirector {
     this.unsub = [];
     this.d.view.hudMode = null;
     this.d.plan.setFirstPerson(null);
+    this.loot.detach();
     this.s = null;
     this.priv = null;
     this.hide();
@@ -239,7 +279,7 @@ export class JobDirector {
   private applyHost() {
     const s = this.s;
     if (!s || !s.isHost) return;
-    this.d.plan.setFirstPerson(this.stage ? { skills: true, gate: (b, i) => this.gate(b, i) } : null);
+    this.d.plan.setFirstPerson(this.stage ? { skills: true, gate: (b, i) => this.gate(b, i), near: (role, at) => this.atPlace(role, at) } : null);
   }
 
   private bindGuards() {
@@ -277,20 +317,38 @@ export class JobDirector {
   }
 
   /** Host: may beat i be shown? Only when every inside human (free, connected) stands at its place. */
-  private gate(b: BeatRef, i: number): boolean {
+  private gate(b: BeatRef, i: number): boolean | number {
     const s = this.s;
     if (!s || !this.stage || i === 0 || !GATED.has(b.title.k)) return true;
     const p = s.get<any>('plan');
     if (!p?.run || !p.plan) return true;
     const a = this.anchor(beatAnchor(b, p.run.entrance, this.stage?.climb));
     if (!a) return true;
+    const van = this.anchor('van');
+    const k = b.title.k;
+    // the getaway waits for the bags as well (longer: up to 2 minutes), unless the crew drove off ("Abfahrt")
+    const bags = k === 'bt.getaway' ? this.loot.status(p.job) : 'none';
+    if (bags === 'left') return true;
     for (const seat of p.seats) {
       if (!seat.pid || p.plan.posts[seat.role] !== 'inside' || p.run.status[seat.role] === 'caught') continue;
       const pose = s.poseOf(seat.pid);
       if (!pose) continue;
-      if (!this.near(pose, a)) return false;
+      // on the way out, whoever already carried a bag to the van counts as out
+      if (!this.near(pose, a) && !(k === 'bt.out' && van && this.near(pose, van, 2.5))) return bags === 'pending' ? lootWait() : false;
     }
-    return true;
+    return bags === 'pending' ? lootWait() : true;
+  }
+
+  /** Host: is the human in seat `role` at the task place `at` ('door' | 'safe')? No pose known: yes (never block on missing data). */
+  private atPlace(role: string, at: string): boolean {
+    const s = this.s;
+    const p = s?.get<any>('plan');
+    if (!s || !p?.run) return true;
+    const pid = p.seats?.find((x: any) => x.role === role)?.pid;
+    const a = this.anchor(this.skillKey(p.run, at));
+    const pose = pid ? s.poseOf(pid) : undefined;
+    if (!a || !pose) return true;
+    return this.near(pose, a, TAKE_SLACK);
   }
 
   // ------------------------------------------------------------------ per frame
@@ -315,8 +373,11 @@ export class JobDirector {
       st.openDoor?.(R.entrance, true);
     }
     this.climbing(p, inOpen);
+    if (s.isHost) this.loot.hostTick(p);
     const objective = this.objective(p);
     this.skill(p);
+    const canCarry = !!this.insideMe(p) && !this.open && !this.ui.popupOpen() && !this.d.view.isOpen() && !this.mySkill(p) && !this.openNow;
+    this.loot.update(dt, p, canCarry, s.hostNow());
     this.drawHud(p, objective, dt);
     this.rescue(dt, objective.anchor, p);
     const last = R.beats[R.beats.length - 1];
@@ -448,6 +509,10 @@ export class JobDirector {
       const here = !a || this.near(this.d.player()?.position, a);
       return { key, anchor: a, text: t(here ? 'jb.skillOpen' : 'jb.skillGo', { place: key ? place(key) : '' }) };
     }
+    const ot = this.openTask(p);
+    if (ot) return { key: ot.key, anchor: ot.anchor, text: '' };
+    // carrying a bag: to the van
+    if (this.loot.carrying(p.job)) return { key: 'van', anchor: this.anchor('van'), text: '' };
     const post = p.plan.posts[me];
     if (post === 'lookout') return { key: 'post.lookout', anchor: this.anchor('post.lookout'), text: t('jb.lookout') };
     if (post === 'driver') return { key: 'van.driver', anchor: this.anchor('van.driver'), text: t('jb.driver') };
@@ -457,6 +522,11 @@ export class JobDirector {
       for (let i = R.beats.length - 1; i >= 0 && !key; i--) {
         key = beatAnchor(R.beats[i], R.entrance, this.stage?.climb);
       }
+    // bags still lying around once the job heads out (or nothing else to do): fetch them
+    if (post === 'inside' && (!key || key === 'van' || R.beats.some((b: any) => b.title.k === 'bt.out' || b.title.k === 'bt.greed'))) {
+      const bag = this.loot.nearestLying(p.job, this.d.player()?.position);
+      if (bag) return { key: 'loot', anchor: bag, text: '' };
+    }
     const a = this.anchor(key);
     if (!key || !a) return { key: null, anchor: null, text: '' };
     const here = this.near(this.d.player()?.position, a);
@@ -472,11 +542,37 @@ export class JobDirector {
     return sk && this.priv.job === p.job && p.phase === 'run' ? sk : null;
   }
 
+  /** A task open to everyone inside, or a world choice, that I (inside, free) may start. */
+  private openTask(p: any): OpenTask | null {
+    const R = p.run;
+    const me = this.insideMe(p);
+    if (!me || p.phase !== 'run' || this.mySkill(p)) return null;
+    if (R.skill && R.skill.open) {
+      const key = this.skillKey(R, R.skill.at);
+      return { kind: 'take', key, anchor: this.anchor(key), holder: R.skill.holder ?? null, opts: [{ key: 'E', task: R.skill.kind ?? R.skill.game, id: '' }], ref: 'n' + R.skill.n };
+    }
+    const c = R.choice;
+    if (c) {
+      const opts = (c.opts ?? []).filter((o: any) => !o.only || o.only === me).map((o: any) => ({ key: o.key, task: o.task, id: o.id }));
+      if (!opts.length) return null;
+      const key = this.skillKey(R, c.at);
+      const holder = (c.opts.find((o: any) => o.role)?.role as string) ?? null;
+      return { kind: 'choice', key, anchor: this.anchor(key), holder, opts, ref: 'c' + R.shown + ':' + (c.until ?? 0) };
+    }
+    return null;
+  }
+
   // ------------------------------------------------------------------ skill checks
 
   private skill(p: any) {
     this.promptNow = false;
+    this.openNow = null;
+    this.openTaskKeys(p);
     const sk = this.mySkill(p);
+    if (sk && !this.skillLog.some((x) => x.job === p.job && x.n === sk.n)) {
+      this.skillLog.push({ job: p.job, n: sk.n, game: sk.game, variant: sk.variant, standIn: !!sk.standIn, holder: sk.holder ?? null });
+      if (this.skillLog.length > 40) this.skillLog.shift();
+    }
     if (this.open && (!sk || sk.n !== this.open.n)) this.closeGame(false);
     if (!sk || this.sent.has(sk.n)) return;
     const st = this.stage!;
@@ -494,13 +590,15 @@ export class JobDirector {
       return; // "geh zum Tresor": the prompt shows on arrival
     }
     if (this.d.view.isOpen() || this.ui.popupOpen()) return; // a card of mine is open: after it
-    // at the place: the HUD shows "E  Schloss knacken"; only E opens the game
+    // at the place: the HUD shows "E  Schloss knacken"; only E opens the game (or I just started it myself)
     const inp = (this.d.view as unknown as { input?: Input }).input;
+    const auto = performance.now() < this.autoOpenUntil;
     const e = this.ui.takeE();
-    if (!e && !inp?.codePressed('KeyE')) {
+    if (!auto && !e && !inp?.codePressed('KeyE')) {
       this.promptNow = true;
       return;
     }
+    this.autoOpenUntil = 0;
     this.open = { n: sk.n, game, anchor: a };
     if (pl && !pl.frozen) {
       pl.frozen = true;
@@ -513,6 +611,27 @@ export class JobDirector {
       this.unfreeze();
       this.send(n, r);
     });
+  }
+
+  /** An open task or a world choice: at its place, E (or F) starts it; the host decides who was first. */
+  private openTaskKeys(p: any) {
+    const ot = this.openTask(p);
+    if (!ot) return;
+    const pl = this.d.player();
+    if (ot.anchor && !this.near(pl?.position, ot.anchor)) return;
+    if (this.tookKey === ot.ref || this.open || this.d.view.isOpen() || this.ui.popupOpen()) return;
+    this.openNow = ot;
+    const inp = (this.d.view as unknown as { input?: Input }).input;
+    const e = this.ui.takeE() || !!inp?.codePressed('KeyE');
+    const f = this.ui.takeF() || !!inp?.codePressed('KeyF');
+    const o = ot.opts.find((x) => (x.key === 'E' && e) || (x.key === 'F' && f));
+    if (!o) return;
+    this.tookKey = ot.ref;
+    this.openNow = null;
+    // a task follows (lock, safe, drill): my game opens as soon as the host hands it to me
+    if (o.task !== 'crow') this.autoOpenUntil = performance.now() + 8000;
+    if (ot.kind === 'take') this.s?.intent('plan.act', { t: 'take', n: Number(ot.ref.slice(1)) });
+    else this.s?.intent('plan.act', { t: 'choose', id: o.id });
   }
 
   private send(n: number, r: SkillResult) {
@@ -558,9 +677,12 @@ export class JobDirector {
         key: o.key,
         anchor: o.anchor,
         here: !!o.anchor && this.near(pl?.position, o.anchor),
-        mySkill: sk && !this.sent.has(sk.n) ? { game: sk.game, variant: sk.variant } : null,
+        mySkill: sk && !this.sent.has(sk.n) ? { game: sk.game, variant: sk.variant, standIn: !!sk.standIn, holder: sk.holder ?? null } : null,
         gameOpen: !!this.open,
         prompt: this.promptNow,
+        openTask: this.openTask(p),
+        openHere: this.openNow,
+        carrying: this.loot.carrying(p.job),
         player: pl,
       },
       dt,
@@ -569,9 +691,15 @@ export class JobDirector {
 
   private hide() {
     this.ui.hide();
+    this.loot.hide();
     this.rHeld = 0;
     this.objKey = null;
     this.objAt = null;
+  }
+
+  /** Test hook: a place of the registered stage. */
+  debugAnchor(key: string): Anchor | null {
+    return this.anchor(key);
   }
 
   /** Test hook: what this client shows and does. */
@@ -587,7 +715,11 @@ export class JobDirector {
       marker: this.ui.debug().marker3d || this.ui.debug().edge,
       game: this.open ? this.open.game.id : null,
       skill: this.priv?.skill ?? null,
+      openTask: this.openNow ? { kind: this.openNow.kind, keys: this.openNow.opts.map((o) => o.key + ':' + o.task) } : null,
       lastResult: this.lastResult,
+      skillLog: this.skillLog.slice(),
+      pid: this.s?.pid ?? null,
+      loot: this.s?.get<any>('plan') ? this.loot.debug(this.s.get<any>('plan').job) : null,
     };
   }
 }

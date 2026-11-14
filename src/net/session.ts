@@ -10,6 +10,8 @@ import type { Pose } from '../game/player';
 export const PROTOCOL = 1;
 const PREFIX = 'nullvault1-';
 export const MAX_PLAYERS = 4;
+/** Reconnect tries (3.5 s apart) before a guest gives up on a host that does not answer (~55 s: enough for a host to reload). */
+const RECONNECT_TRIES = 15;
 const CODE_CHARS = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789'; // no look-alikes (0/O, 1/I/L)
 
 export interface PlayerInfo {
@@ -87,6 +89,8 @@ export class Session {
   onRoster: ((joined: PlayerInfo | null, left: PlayerInfo | null) => void) | null = null;
   onPose: ((pid: string, pose: Pose) => void) | null = null;
   onStatus: ((s: Status) => void) | null = null;
+  /** Client: the host has not answered for several tries (it probably reloaded or crashed); fires once per outage. */
+  onHostGone: (() => void) | null = null;
   private stateListeners = new Set<(path: string, value: any) => void>();
   private eventListeners = new Set<(name: string, args: any) => void>();
   private castListeners = new Set<(name: string, data: any) => void>();
@@ -96,6 +100,9 @@ export class Session {
 
   // host
   private links = new Map<string, Link>();
+  /** pid -> how often this player's link was (re)established; lets the host re-send private state to a returning player. */
+  private epochs = new Map<string, number>();
+  private privQueue: [string, any][] = [];
   private pendingUnrel = new Map<string, DataConnection>();
   private poses = new Map<string, PoseArr>();
   private poseSeq = 0;
@@ -127,7 +134,7 @@ export class Session {
 
   // ------------------------------------------------------------------ hosting
 
-  static host(pid: string, name: string, color: number): Promise<Session> {
+  static host(pid: string, name: string, color: number, preferCode = ''): Promise<Session> {
     const s = new Session(pid, name, color);
     s.isHost = true;
     return new Promise((resolve) => {
@@ -149,7 +156,8 @@ export class Session {
       };
       const tryOpen = () => {
         attempts++;
-        const code = makeCode();
+        // a host that comes back after a reload asks for his old code first, so the crew can find him again
+        const code = attempts === 1 && /^[A-Z0-9]{5}$/.test(preferCode) ? preferCode : makeCode();
         let peer: Peer;
         try {
           peer = new Peer(PREFIX + code, peerOptions());
@@ -278,6 +286,7 @@ export class Session {
           this.pendingUnrel.delete(pid);
         }
         const isNew = !this.players.has(pid);
+        this.epochs.set(pid, (this.epochs.get(pid) ?? 0) + 1);
         const info: PlayerInfo = { pid, name: String(d.name || 'Crew').slice(0, 16), color: Number(d.color) || 0, peerId: conn.peer, host: false };
         this.players.set(pid, info);
         conn.send({ t: 'w', v: PROTOCOL, code: this.code, roster: [...this.players.values()], state: this.state, now: this.hostNow() });
@@ -441,6 +450,8 @@ export class Session {
           for (const l of this.castListeners) l(d.n, d.a);
           break;
         case 'pm':
+          // nobody listens yet (the page is still starting up): keep it for the first listener
+          if (!this.privateListeners.size) this.privQueue.push([d.n, d.a]);
           for (const l of this.privateListeners) l(d.n, d.a);
           break;
       }
@@ -527,7 +538,8 @@ export class Session {
     const attempt = () => {
       if (this.closed) return;
       this.reconnectAttempts++;
-      if (this.reconnectAttempts > 8) {
+      if (this.reconnectAttempts === 3) this.onHostGone?.();
+      if (this.reconnectAttempts > RECONNECT_TRIES) {
         this.status = 'closed';
         this.onStatus?.('closed');
         return;
@@ -613,23 +625,37 @@ export class Session {
    * receives it, so it can carry secrets. Answers go back as intents, which
    * only the host sees.
    */
-  sendTo(pid: string, name: string, args?: any) {
-    if (!this.isHost) return;
+  sendTo(pid: string, name: string, args?: any): boolean {
+    if (!this.isHost) return false;
     if (pid === this.pid) {
       for (const l of this.privateListeners) l(name, args);
-      return;
+      return true;
     }
     const link = this.links.get(pid);
-    if (!link?.rel.open) return;
+    if (!link?.rel.open) return false;
     try {
       link.rel.send({ t: 'pm', n: name, a: args });
+      return true;
     } catch {
       /* link is closing */
+      return false;
     }
+  }
+
+  /** Host: changes every time `pid` connects (or reconnects), so private state sent on an older link can be sent again. */
+  linkEpoch(pid: string): number {
+    return this.epochs.get(pid) ?? 0;
   }
 
   onPrivate(fn: (name: string, args: any) => void): () => void {
     this.privateListeners.add(fn);
+    if (this.privQueue.length) {
+      const q = this.privQueue;
+      this.privQueue = [];
+      queueMicrotask(() => {
+        for (const [n, a] of q) for (const l of this.privateListeners) l(n, a);
+      });
+    }
     return () => this.privateListeners.delete(fn);
   }
 

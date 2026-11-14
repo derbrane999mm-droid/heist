@@ -118,8 +118,10 @@ export class Engine {
       /* ignore */
     }
     if (/swiftshader|llvmpipe|software/.test(name)) return 'low';
-    if (/rtx|radeon rx|geforce gtx 1[06-9]|geforce gtx [2-9]|arc a|apple m[2-9]|apple m1 (pro|max|ultra)/.test(name)) return 'high';
-    if (/intel|uhd|iris|mali|adreno/.test(name)) return 'medium';
+    if (/rtx|radeon rx|geforce gtx 1[06-9]|geforce gtx [2-9]|arc a|apple m[3-9]|apple m[12] (pro|max|ultra)/.test(name)) return 'high';
+    // base M1 / M2 (8-10 GPU cores) at 'high' renders 2.25x the pixels of 'medium' and fell to the live
+    // tuning's lowest scale, then dropped a preset mid-job (a full shader recompile): start at medium
+    if (/intel|uhd|iris|mali|adreno|apple m[12]\b/.test(name)) return 'medium';
     return 'high';
   }
 
@@ -165,6 +167,12 @@ export class Engine {
    */
   warmUp() {
     const restore: THREE.Object3D[] = [];
+    // Hidden objects (guards before a job, props shown later) are skipped by the renderer, so their
+    // shaders would compile the first time they appear (a hitch mid-job). Show them for this one frame,
+    // except subtrees holding a light: that would change the light count the shaders are built for.
+    // Only behind the loading screen: while playing, this frame reaches the screen.
+    const hidden: THREE.Object3D[] = [];
+    const showHidden = !this.running;
     this.scene.traverse((o) => {
       if (o.frustumCulled) {
         o.frustumCulled = false;
@@ -172,8 +180,15 @@ export class Engine {
       }
       const l = o as THREE.SpotLight;
       if (l.isLight && l.shadow) l.shadow.needsUpdate = true;
+      if (showHidden && !o.visible && o !== this.scene) {
+        let light = false;
+        o.traverse((c) => (light ||= (c as THREE.Light).isLight === true));
+        if (!light) hidden.push(o);
+      }
     });
+    for (const o of hidden) o.visible = true;
     this.composer.render(0);
+    for (const o of hidden) o.visible = false;
     for (const o of restore) o.frustumCulled = true;
   }
 
@@ -256,7 +271,7 @@ export class Engine {
 
   private skipCount = 0;
   private upBlockedUntil = 0;
-  private upPenalty = 20;
+  private upPenalty = 45;
   private lastUpAt = -1e9;
 
   private frame(now: number) {
@@ -294,6 +309,9 @@ export class Engine {
     if (avg > 1 / 48) {
       this.fastPeriods = 0;
       this.slowPeriods++;
+      // one slow period is often a single event (a level loading a texture, a burst of garbage):
+      // stepping the resolution for it costs a resize hitch now and another one when it steps back
+      if (this.slowPeriods < 2 && avg < 1 / 30) return;
       if (this.dynScale > 0.62) {
         this.dynScale = Math.max(0.6, this.dynScale - (avg > 1 / 30 ? 0.15 : 0.08));
         // Changing resolution costs a hitch, so never bounce: after stepping down,

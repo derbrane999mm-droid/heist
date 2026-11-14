@@ -14,6 +14,7 @@ import type { Player } from '../player';
 import { tx, pt, type Lang } from '../plan/texts';
 import { settings } from '../../core/settings';
 import { registerStrings, t } from '../../core/i18n';
+import type { OpenTask } from './director';
 
 registerStrings(
   {
@@ -84,6 +85,34 @@ registerStrings(
     'jb.intro.2': 'Whoever is up gets a task or a decision.',
     'jb.intro.3': 'Tab shows what has happened so far.',
     'jb.intro.any': 'Any key to continue',
+    'jb.open.lock': 'Pick the lock: who does it?',
+    'jb.open.safe': 'Open the safe: who does it?',
+    'jb.open.drill': 'Drill the safe: who does it?',
+    'jb.open.door': 'The door: who opens it?',
+    'jb.open.vault': 'The safe: who opens it?',
+    'jb.sub.openGo': "Normally {who}'s job. Whoever presses E there first does it.",
+    'jb.sub.openAny': 'Whoever presses the key there first does it.',
+    'jb.sub.openHere': 'Press the key to start.',
+    'jb.sub.standIn': 'You stand in for {who}: a little harder.',
+    'jb.key.lock': 'Pick the lock',
+    'jb.key.crow': 'Crowbar (loud, sure)',
+    'jb.key.safe': 'Open quietly',
+    'jb.key.drill': 'Drill (loud)',
+    'jb.otherOpen': '{task}: waiting for someone inside',
+    'jb.dice': 'Dice decide in {t}',
+    'jb.toast.tresor': 'Safe open',
+    'jb.toast.vitrinen': 'Display cases emptied',
+    'jb.toast.lager': 'Storeroom cleared',
+    'jb.toast.shut': 'The safe stays shut',
+    'jb.toast.in': 'You are in',
+    'jb.cq.ok': '{n} % it works.',
+    'jb.cq.unseen': '{n} % nobody sees you.',
+    'jb.cq.police': '{n} % you are out before the police.',
+    'jb.cq.risk': 'Risk {n} %.',
+    'jb.cq.noRisk': 'No risk.',
+    'jb.cq.sure': 'Certain.',
+    'jb.cq.takes': 'Takes {x}.',
+    'jb.goOn': 'Going on without you in {t}',
   },
   {
     'jb.to.van': 'Zum Transporter',
@@ -153,6 +182,34 @@ registerStrings(
     'jb.intro.2': 'Wer dran ist, bekommt eine Aufgabe oder eine Entscheidung.',
     'jb.intro.3': 'Tab zeigt, was bisher geschah.',
     'jb.intro.any': 'Weiter mit beliebiger Taste',
+    'jb.open.lock': 'Schloss knacken: wer macht es?',
+    'jb.open.safe': 'Tresor öffnen: wer macht es?',
+    'jb.open.drill': 'Tresor aufbohren: wer macht es?',
+    'jb.open.door': 'Die Tür: wer macht sie auf?',
+    'jb.open.vault': 'Der Tresor: wer macht ihn auf?',
+    'jb.sub.openGo': 'Eigentlich Sache von {who}. Wer dort zuerst E drückt, macht es.',
+    'jb.sub.openAny': 'Wer dort zuerst die Taste drückt, macht es.',
+    'jb.sub.openHere': 'Drück die Taste und leg los.',
+    'jb.sub.standIn': 'Du springst für {who} ein: etwas schwerer.',
+    'jb.key.lock': 'Schloss knacken',
+    'jb.key.crow': 'Aufhebeln (laut, sicher)',
+    'jb.key.safe': 'Leise öffnen',
+    'jb.key.drill': 'Bohren (laut)',
+    'jb.otherOpen': '{task}: wartet auf jemanden drinnen',
+    'jb.dice': 'Würfel entscheidet in {t}',
+    'jb.toast.tresor': 'Tresor offen',
+    'jb.toast.vitrinen': 'Vitrinen leer',
+    'jb.toast.lager': 'Lager ausgeräumt',
+    'jb.toast.shut': 'Tresor bleibt zu',
+    'jb.toast.in': 'Ihr seid drin',
+    'jb.cq.ok': 'Klappt zu {n} %.',
+    'jb.cq.unseen': 'Zu {n} % sieht euch keiner.',
+    'jb.cq.police': 'Zu {n} % vor der Polizei raus.',
+    'jb.cq.risk': 'Risiko {n} %.',
+    'jb.cq.noRisk': 'Kein Risiko.',
+    'jb.cq.sure': 'Sicher.',
+    'jb.cq.takes': 'Dauert {x}.',
+    'jb.goOn': 'Es geht ohne euch weiter in {t}',
   },
 );
 
@@ -162,8 +219,14 @@ const tOr = (k: string, fb: string, vars?: Record<string, string | number>) => {
   const s = t(k, vars);
   return s === k ? t(fb, vars) : s;
 };
-/** Seconds one event line stays (shorter while more are waiting). */
+/** Seconds one event line stays (never shorter than LINE_MIN; older lines give way when more than QUEUE_MAX wait). */
 const LINE_S = 3;
+const LINE_MIN = 2.5;
+const QUEUE_MAX = 3;
+/** Neutral narration stays in the Tab log; the event line shows what the crew must know. */
+const SKIP_KINDS = new Set(['info', 'roll', 'trace']);
+const TOAST_S = 2;
+const TOAST_LINE: Record<string, [string, boolean]> = { 'ln.safeShut': ['jb.toast.shut', true], 'ln.open': ['jb.toast.in', false], 'ln.openSix': ['jb.toast.in', false], 'ln.allDown': ['jb.toast.in', false] };
 /** Inside this distance the world marker fades out. */
 const FADE_NEAR = 2.2;
 const FADE_FAR = 5;
@@ -190,8 +253,14 @@ export interface HudFrame {
   anchor: Anchor | null;
   /** within the anchor's radius */
   here: boolean;
-  /** this player's own skill request, if any */
-  mySkill: { game: string; variant: string } | null;
+  /** this player's own skill request, if any (standIn: he does a bot seat's job, `holder` = that seat) */
+  mySkill: { game: string; variant: string; standIn?: boolean; holder?: string | null } | null;
+  /** a task open to everyone inside, or a "which way" choice at a place, that this player may start */
+  openTask: OpenTask | null;
+  /** ... and he stands there now: show its keys */
+  openHere: OpenTask | null;
+  /** this player carries a bag (loot.ts) */
+  carrying?: boolean;
   /** the skill game is open on this client */
   gameOpen: boolean;
   /** standing at the task's place, game not open yet: show "E ..." */
@@ -228,6 +297,9 @@ export class JobHud {
   private readonly edge: HTMLElement;
   private readonly promptEl: HTMLElement;
   private readonly rescueEl: HTMLElement;
+  private readonly diceEl: HTMLElement;
+  private readonly toastEl: HTMLElement;
+  private toastLeft = 0;
   // 3D marker (built once, see ENGINE.md rule 2: no new materials while playing)
   private readonly mk = new THREE.Group();
   private readonly beam: THREE.Mesh;
@@ -258,6 +330,7 @@ export class JobHud {
   private logKey = '';
   private introLeft = 0;
   private ePressed = false;
+  private fPressed = false;
   private last: HudFrame | null = null;
   private stuckBest = Infinity;
   private stuckT = 0;
@@ -281,7 +354,8 @@ export class JobHud {
     this.objMain.append(this.objArrow, this.objText, this.objDist);
     this.objSub = el('jb-sub');
     this.event = el('jb-event');
-    this.top.append(this.objMain, this.objSub, this.event);
+    this.diceEl = el('jb-dice hidden');
+    this.top.append(this.objMain, this.objSub, this.event, this.diceEl);
 
     this.meters = el('jb-meters hidden');
     this.timeRow = el('jb-m jb-m-time', `<span class="jb-ml"></span><div class="jb-bar"><i></i></div>`);
@@ -300,6 +374,8 @@ export class JobHud {
     this.promptEl = el('jb-prompt hidden');
     this.promptEl.setAttribute('data-jb-skill', '');
     this.rescueEl = el('jb-rescue hidden');
+    this.toastEl = el('jb-toast hidden');
+    d.root.append(this.toastEl);
     d.root.append(this.top, this.meters, this.edge, this.promptEl, this.pop, this.log, this.intro, this.rescueEl);
 
     // the world marker: a soft light column and a floating diamond, drawn last and through walls
@@ -370,6 +446,7 @@ export class JobHud {
       this.intro.classList.add('hidden');
     }
     if (e.code === 'KeyE') this.ePressed = true;
+    if (e.code === 'KeyF') this.fPressed = true;
     const m = /^(?:Digit|Numpad)([1-9])$/.exec(e.code);
     if (m && this.popKind) {
       e.preventDefault();
@@ -381,6 +458,13 @@ export class JobHud {
   takeE(): boolean {
     const v = this.ePressed;
     this.ePressed = false;
+    return v;
+  }
+
+  /** F was pressed since the last call (second way of a task: drill, crowbar). */
+  takeF(): boolean {
+    const v = this.fPressed;
+    this.fPressed = false;
     return v;
   }
 
@@ -510,8 +594,10 @@ export class JobHud {
     this.drawPrompt(f);
     this.drawMarker(f);
     if (this.logOpen) this.drawLog(p, ctx);
+    this.drawDice(f);
     // E counts only for the frame it was pressed in (the director reads it before this)
     this.ePressed = false;
+    this.fPressed = false;
   }
 
   private setText(el: HTMLElement, s: string) {
@@ -538,10 +624,18 @@ export class JobHud {
       const k = taskKind(f.mySkill.game, f.mySkill.variant);
       main = t('jb.yourTask', { task: t('jb.task.' + k) });
       sub = f.gameOpen ? t('jb.sub.working') : f.prompt || f.here || !f.anchor ? t('jb.sub.press') : t('jb.sub.goPress');
+      if (f.mySkill.standIn && f.mySkill.holder && !f.gameOpen) sub = t('jb.sub.standIn', { who: ctx.name(f.mySkill.holder) }) + ' ' + sub;
+    } else if (f.openTask) {
+      const o = f.openTask;
+      const task = o.opts[0]?.task ?? 'any';
+      main = o.kind === 'choice' ? t(task === 'lock' || task === 'crow' ? 'jb.open.door' : 'jb.open.vault') : tOr('jb.open.' + task, 'jb.open.lock');
+      sub = f.openHere ? t('jb.sub.openHere') : o.holder && p.seats?.find((x: any) => x.role === o.holder)?.bot !== false ? t('jb.sub.openGo', { who: ctx.name(o.holder) }) : t('jb.sub.openAny');
     } else {
       const post = p.plan?.posts?.[me];
       main = f.here || !f.anchor ? placeAt(f.key) : placeTo(f.key);
-      if (post === 'lookout') sub = t('jb.sub.lookout');
+      if (f.carrying) sub = t('jb.sub.carry');
+      else if (f.key === 'loot') sub = t('jb.sub.loot');
+      else if (post === 'lookout') sub = t('jb.sub.lookout');
       else if (post === 'driver') sub = t('jb.sub.driver');
       else if (R.waitAt) sub = t(f.here ? 'jb.sub.wait' : 'jb.sub.waitGo');
       else {
@@ -550,7 +644,10 @@ export class JobHud {
       }
     }
     // skill of someone else seen by a lookout or driver: still say who works
-    if (me && !f.mySkill && R.skill && R.skill.who !== me && R.status[me] !== 'caught') sub = t('jb.other.' + (R.skill.game === 'lock' ? 'lock' : R.skill.game === 'safe' ? 'safe' : 'any'), { who: ctx.name(R.skill.who) });
+    if (me && !f.mySkill && !f.openTask && R.skill && R.skill.who !== me && R.status[me] !== 'caught') {
+      const k = R.skill.kind === 'lock' || R.skill.kind === 'safe' || R.skill.kind === 'drill' ? R.skill.kind : R.skill.game === 'lock' ? 'lock' : R.skill.game === 'safe' ? 'safe' : 'any';
+      sub = R.skill.who ? t('jb.other.' + k, { who: ctx.name(R.skill.who) }) : t('jb.otherOpen', { task: t('jb.taskCap.' + k) });
+    }
     this.setText(this.objText, main);
     this.setText(this.objDist, showDist ? `${Math.round(dist)} m` : '');
     this.objMain.classList.toggle('far', showDist);
@@ -604,10 +701,27 @@ export class JobHud {
     for (const b of R.beats) {
       for (const l of b.lines) {
         if (n++ < this.seen) continue;
+        const k = l?.x?.k ?? '';
+        // a target done: a short centred toast
+        if ((k === 'ln.loot' || k === 'ln.lootBest') && b.target) this.toast(t('jb.toast.' + b.target), false);
+        else if (TOAST_LINE[k]) this.toast(t(TOAST_LINE[k][0]), TOAST_LINE[k][1]);
+        if (SKIP_KINDS.has(l.kind) && !(l.kind === 'info' && /^ln\.(cases|crates)$/.test(k))) continue;
+        // a way chosen at the place (E / F) needs no line: the player did it himself, the result follows
+        if (l.kind === 'choice' && !this.lastDecider) continue;
         this.queue.push(this.lineText(l, ctx, f.me));
+        if (l.kind === 'choice') this.lastDecider = null;
       }
     }
     this.seen = n;
+    // falling behind: drop the oldest neutral lines first, never bad news
+    while (this.queue.length > QUEUE_MAX) {
+      const i = this.queue.findIndex((q) => q.cls !== 'bad');
+      this.queue.splice(i >= 0 ? i : 0, 1);
+    }
+    if (this.toastLeft > 0) {
+      this.toastLeft -= dt;
+      if (this.toastLeft <= 0) this.toastEl.classList.add('hidden');
+    }
     // somebody else decides: one line, no cards
     this.sticky = d && !(d.who === f.me && !d.bot) ? t('jb.decidesOther', { who: ctx.name(d.who) }) : '';
     // somebody decides now: that is the one line; older lines give way (they stay in the Tab log)
@@ -620,7 +734,7 @@ export class JobHud {
     if (!this.cur || this.curLeft <= 0) {
       this.cur = this.queue.shift() ?? null;
       // keep up when lines come faster than they can be read
-      this.curLeft = this.cur ? Math.max(1.2, LINE_S - 0.6 * this.queue.length) : 0;
+      this.curLeft = this.cur ? Math.max(LINE_MIN, LINE_S - 0.25 * this.queue.length) : 0;
       if (!this.cur && this.event.dataset.k !== 's' + this.sticky) {
         this.event.dataset.k = 's' + this.sticky;
         this.event.className = 'jb-event' + (this.sticky ? ' wait' : ' empty');
@@ -632,6 +746,12 @@ export class JobHud {
         this.event.textContent = this.cur.text;
       }
     }
+  }
+
+  private toast(text: string, bad: boolean) {
+    this.toastEl.textContent = text;
+    this.toastEl.className = 'jb-toast' + (bad ? ' bad' : '');
+    this.toastLeft = TOAST_S;
   }
 
   private drawMeters(R: any) {
@@ -704,11 +824,24 @@ export class JobHud {
     if (sub) h += `<div class="jb-qs">${esc(sub)}</div>`;
     h += `<div class="jb-opts n${d.options.length}">`;
     d.options.forEach((o: any, i: number) => {
-      const tag = o.tags?.[0] ? `<span class="jb-tag">${esc(tx(o.tags[0], ctx))}</span>` : '';
-      const pct = o.pct !== undefined && o.pct !== null ? `<span class="jb-pct">${o.pct}<small>%</small></span>` : '';
-      h += this.card(i + 1, `<b>${esc(tx(o.label, ctx))}</b>${tag}`, pct, '', `data-jb-opt="${esc(o.id)}"`);
+      h += this.card(i + 1, `<b>${esc(tx(o.label, ctx))}</b><span class="jb-cq">${esc(this.consequence(o, ctx))}</span>`, '', '', `data-jb-opt="${esc(o.id)}"`);
     });
     return h + `</div><div class="jb-timer"><i></i></div>`;
+  }
+
+  /** One short line per option: the chance in words, then what happens otherwise (the option's details). */
+  private consequence(o: any, ctx: ReturnType<JobHud['ctx']>): string {
+    const n = Math.round(Number(o.pct) || 0);
+    const pl = o.pctLabel?.k ?? '';
+    let a: string;
+    if (pl === 'pl.sure' || n >= 100) a = t('jb.cq.sure');
+    else if (pl === 'pl.risk') a = n > 0 ? t('jb.cq.risk', { n }) : t('jb.cq.noRisk');
+    else if (pl === 'pl.unseen') a = t('jb.cq.unseen', { n });
+    else if (pl === 'pl.beforePolice') a = t('jb.cq.police', { n });
+    else a = t('jb.cq.ok', { n });
+    const tag0 = o.tags?.[0];
+    const det = o.details ? tx(o.details, ctx) : tag0?.k === 'tag.min' ? t('jb.cq.takes', { x: tx(tag0, ctx) }) : tag0 ? tx(tag0, ctx) : '';
+    return det ? `${a} ${det}` : a;
   }
 
   private offerHtml(o: any, ctx: ReturnType<JobHud['ctx']>) {
@@ -730,11 +863,35 @@ export class JobHud {
   // ------------------------------------------------------------------ task prompt, marker, log
 
   private drawPrompt(f: HudFrame) {
-    const on = f.prompt && !!f.mySkill && !this.popKind;
-    this.promptEl.classList.toggle('hidden', !on);
+    const mine = f.prompt && !!f.mySkill && !this.popKind;
+    const open = !mine && !!f.openHere && !this.popKind && !f.gameOpen;
+    this.promptEl.classList.toggle('hidden', !mine && !open);
+    let html = '';
+    if (mine) html = `<kbd>E</kbd><span>${esc(t('jb.taskCap.' + taskKind(f.mySkill!.game, f.mySkill!.variant)))}</span>`;
+    else if (open) {
+      const o = f.openHere!;
+      html = o.opts.map((x) => `<span class="jb-pk"><kbd>${x.key}</kbd><span>${esc(o.kind === 'choice' ? tOr('jb.key.' + x.task, 'jb.taskCap.any') : tOr('jb.taskCap.' + x.task, 'jb.taskCap.any'))}</span></span>`).join('');
+    }
+    if (html && this.promptEl.innerHTML !== html) this.promptEl.innerHTML = html;
+  }
+
+  /** The last 20 s of a task, a choice at a place, or a wait for the crew: say that the dice (or the job) go on without them. */
+  private drawDice(f: HudFrame) {
+    const R = f.p.run;
+    let until = 0,
+      key = 'jb.dice';
+    if (R.skill && !f.gameOpen) until = R.skill.until ?? f.p.deadline;
+    else if (R.choice) until = R.choice.until ?? f.p.deadline;
+    else if (R.waitAt) {
+      until = R.waitAt.until;
+      key = 'jb.goOn';
+    }
+    const left = until ? until - f.hostNow : Infinity;
+    const on = left <= 20000 && left > -1000;
+    this.diceEl.classList.toggle('hidden', !on);
     if (on) {
-      const html = `<kbd>E</kbd><span>${esc(t('jb.taskCap.' + taskKind(f.mySkill!.game, f.mySkill!.variant)))}</span>`;
-      if (this.promptEl.innerHTML !== html) this.promptEl.innerHTML = html;
+      const sec = Math.max(0, Math.ceil(left / 1000));
+      this.setText(this.diceEl, t(key, { t: `0:${String(sec).padStart(2, '0')}` }));
     }
   }
 
@@ -821,6 +978,9 @@ export class JobHud {
     this.meters.classList.add('hidden');
     this.pop.classList.add('hidden');
     this.promptEl.classList.add('hidden');
+    this.diceEl.classList.add('hidden');
+    this.toastEl.classList.add('hidden');
+    this.toastLeft = 0;
     this.edge.classList.add('hidden');
     this.rescueEl.classList.add('hidden');
     this.intro.classList.add('hidden');
@@ -847,6 +1007,8 @@ export class JobHud {
       popText: this.popKind ? (this.pop.textContent ?? '') : '',
       offerStep: this.offerStep,
       prompt: !this.promptEl.classList.contains('hidden'),
+      dice: this.diceEl.classList.contains('hidden') ? '' : (this.diceEl.textContent ?? ''),
+      toast: this.toastEl.classList.contains('hidden') ? '' : (this.toastEl.textContent ?? ''),
       promptText: this.promptEl.textContent ?? '',
       intro: !this.intro.classList.contains('hidden'),
       introCount: this.introCount,
