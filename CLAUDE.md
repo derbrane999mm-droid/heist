@@ -7,12 +7,12 @@ Online co-op heist game for four friends, played in the browser. Built for Mert,
 ## Working with Mert
 
 - Order of priority when rules pull apart (Mert's rule, 2026-11-16): (1) his latest instruction, (2) a complete answer, (3) brevity, (4) speed.
-- His latest instruction comes before the handover, the roadmap and your own ideas. If you think something else is needed first (rebuilding tests, infrastructure, networking, a refactor), say so in one sentence and ask. Do not start it.
+- His latest instruction comes before the handover, the roadmap, older working rules and your own ideas. If your plan covers less than he asked for, or something else first (rebuilding tests, infrastructure, networking, a refactor), say so in your first sentence and ask. Do not start it.
 - Talk to him in German. Short in form, complete in content: no introductions and no repeats, but answer every part of his question and say everything he would otherwise have to ask for. When there is something to decide: one clear recommendation with the reason, then smaller alternatives.
-- Small steps: build a little, show him something he can look at (local preview, picture, link), get his verdict, continue. Never build a whole block before the first example.
+- Default: small steps. Build a little, show him something he can look at (local preview, picture, link), get his verdict, continue. Exception: when he orders something whole ("komplett", "fertig", "in einem Zug"), build it through to that end. Report progress, do not stop to wait for his verdict.
 - For taste decisions ask a few short tap-to-answer questions. Technical decisions inside the task he gave are yours. Work beyond that task needs his go-ahead.
 - Larger answers end with a separate status block: `Erledigt` / `Offen` / `Nächster Schritt` / `Braucht deine Entscheidung`.
-- Keep token use lean (Mert's rule, 2026-11-14): the top model steers, decides and reviews. Building and testing go to cheaper models (Sonnet, Opus) as agents. Parallel agents start only after Mert has approved the first example of that part, and then only where parts are independent. Do not run everything in one line on the top model, and get help when stuck.
+- Keep token use lean (Mert's rule, 2026-11-14): the top model steers, decides and reviews. Building and testing go to cheaper models (Sonnet, Opus) as agents. Parallel agents start only after Mert has approved the first example of that part or has ordered the whole thing in one go, and then only where parts are independent. Do not run everything in one line on the top model, and get help when stuck.
 - Check that a new approach works before building on it.
 - Be honest about limits. He measures against big commercial games; say plainly what this game can and cannot be.
 
